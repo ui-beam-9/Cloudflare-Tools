@@ -1,0 +1,78 @@
+# 环境变量文件
+.env
+.env.*
+!.env.example
+
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
+.python-version
+*.egg-info/
+dist/
+build/
+develop-eggs/
+sdist/
+.installed.cfg
+*.egg
+
+# 日志文件
+*.log
+logs/
+log/
+
+# IDE相关
+.idea/
+.vscode/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.pydevproject
+.settings/
+
+# 操作系统生成的文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# 临时文件
+*.tmp
+*.bak
+*.backup
+temp/
+tmp/
+
+# 项目特定文件
+*.csv
+*.pkl
+*.h5
+*.bin
+*.db
+*.sqlite
+*.sqlite3
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# R2上传临时缓存
+.r2_cache/ 
