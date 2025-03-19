@@ -232,7 +232,7 @@ class R2UploaderGUI(QMainWindow):
         
     def init_ui(self):
         """初始化UI"""
-        self.setWindowTitle('Cloudflare R2 文件上传器')
+        self.setWindowTitle('Cloudflare R2 Manager')
         self.setMinimumSize(1200, 800)
         
         # 创建主窗口部件

@@ -101,7 +101,9 @@ python cloudflare_r2_manager.py
 
 ## 截图
 
-> 此处将在GitHub上添加应用程序的截图
+![image-20250319093206096](/img/cloudflare_dns_manager_main.png)
+
+![image-20250319093307209](/img/cloudflare_r2_manager_upload.png)
 
 ## 开发与贡献
 
