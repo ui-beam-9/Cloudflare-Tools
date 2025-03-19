@@ -9,6 +9,7 @@
 - 添加新DNS记录
 - 编辑现有DNS记录
 - 删除DNS记录
+- 多域名支持（可在界面中快速切换不同域名）
 
 ### Cloudflare R2 存储管理器
 - 文件上传（支持单个文件和整个文件夹）
@@ -34,6 +35,22 @@ cp .env.example .env
 ```
 
 请根据模板文件中的说明填写相应的API凭证和配置项，确保填写正确，否则程序将无法正常工作。
+
+#### DNS管理器多域名配置
+
+DNS管理器支持同时管理多个域名。在`.env`文件中，使用`CLOUDFLARE_ZONES`配置多个域名：
+
+```json
+CLOUDFLARE_ZONES={"example.com": "区域ID1", "example.org": "区域ID2"}
+```
+
+配置格式说明：
+- 使用JSON对象格式
+- 键为域名
+- 值为对应的Cloudflare区域ID
+- 可以配置任意数量的域名
+
+配置完成后，您可以在DNS管理器界面顶部的下拉框中切换不同的域名。
 
 ### 2. 安装依赖
 
@@ -90,7 +107,7 @@ python cloudflare_r2_manager.py
 
 ## 文件说明
 
-- `cloudflare_dns_manager.py` - Cloudflare DNS管理工具，用于管理DNS记录
+- `cloudflare_dns_manager.py` - Cloudflare DNS管理工具，用于管理多个域名的DNS记录
 - `cloudflare_r2_manager.py` - Cloudflare R2存储管理工具，用于文件上传和管理
 - `.env.example` - 环境变量配置模板文件，包含所有需要的配置项
 - `requirements.txt` - 项目依赖列表

@@ -164,23 +164,42 @@ class ProxiedDelegate(QStyledItemDelegate):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Cloudflare DNS 管理器")
+        self.setWindowTitle("Cloudflare DNS Manager")
         self.setMinimumSize(800, 600)
         
         # 加载配置
         load_dotenv()
         self.api_token = os.getenv('CLOUDFLARE_API_TOKEN')
-        self.zone_id = os.getenv('CLOUDFLARE_ZONE_ID')
+        
+        # 初始化域名数据
+        self.zones = {}
+        self.current_domain = None
+        self.current_zone_id = None
+        self.load_zones()
         
         # 创建主窗口部件
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         
-        # 创建按钮
-        button_layout = QHBoxLayout()
+        # 创建域名选择区域
+        domain_layout = QHBoxLayout()
+        domain_label = QLabel("选择域名:")
+        self.domain_selector = QComboBox()
+        self.domain_selector.setMinimumWidth(200)
         
-        layout.addLayout(button_layout)
+        # 填充域名选择器
+        for domain in self.zones.keys():
+            self.domain_selector.addItem(domain)
+        
+        # 连接域名选择变化事件
+        self.domain_selector.currentTextChanged.connect(self.on_domain_changed)
+        
+        domain_layout.addWidget(domain_label)
+        domain_layout.addWidget(self.domain_selector)
+        domain_layout.addStretch()
+        
+        layout.addLayout(domain_layout)
         
         # 创建表格
         self.table = QTableWidget()
@@ -220,18 +239,54 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(self.table)
         
+        # 状态栏显示当前域名
+        self.statusBar().showMessage("就绪")
+        
         # 初始化DNS管理器
         self.dns_manager = None
-        self.init_dns_manager()
         
-        # 刷新记录
-        self.refresh_records()
+        # 如果有域名，选择第一个
+        if self.domain_selector.count() > 0:
+            self.current_domain = self.domain_selector.currentText()
+            self.current_zone_id = self.zones.get(self.current_domain)
+            self.init_dns_manager()
+            self.refresh_records()
+        else:
+            QMessageBox.warning(self, "错误", "未找到域名配置，请在.env文件中配置CLOUDFLARE_ZONES")
+    
+    def load_zones(self):
+        """加载域名配置"""
+        try:
+            zones_str = os.getenv('CLOUDFLARE_ZONES')
+            if zones_str:
+                self.zones = json.loads(zones_str)
+            
+            # 如果没有找到多域名配置，尝试使用旧的单域名配置
+            if not self.zones:
+                zone_id = os.getenv('CLOUDFLARE_ZONE_ID')
+                if zone_id:
+                    # 使用zone_id作为键名（临时，因为我们不知道实际域名）
+                    self.zones = {f"Zone ID: {zone_id}": zone_id}
+        except json.JSONDecodeError:
+            QMessageBox.warning(self, "错误", "CLOUDFLARE_ZONES配置格式错误，请确保是有效的JSON")
+            self.zones = {}
+    
+    def on_domain_changed(self, domain):
+        """处理域名选择变化"""
+        if domain and domain in self.zones:
+            self.current_domain = domain
+            self.current_zone_id = self.zones.get(domain)
+            self.init_dns_manager()
+            self.refresh_records()
+            self.statusBar().showMessage(f"当前域名: {domain}")
     
     def init_dns_manager(self):
-        if self.api_token and self.zone_id:
-            self.dns_manager = CloudflareDNS(self.api_token, self.zone_id)
+        if self.api_token and self.current_zone_id:
+            self.dns_manager = CloudflareDNS(self.api_token, self.current_zone_id)
+            return True
         else:
-            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONE_ID")
+            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONES")
+            return False
     
     def show_context_menu(self, pos: QPoint):
         menu = QMenu(self)
@@ -262,10 +317,16 @@ class MainWindow(QMainWindow):
     
     def refresh_records(self):
         if not self.dns_manager:
-            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONE_ID")
-            return
+            if not self.init_dns_manager():
+                return
         
         try:
+            self.table.setRowCount(0)  # 清空表格
+            
+            # 设置窗口标题，包含当前域名
+            if self.current_domain:
+                self.setWindowTitle(f"Cloudflare DNS Manager - {self.current_domain}")
+            
             response = self.dns_manager.list_records()
             if response.get('success', False):
                 records = response['result']
@@ -288,8 +349,8 @@ class MainWindow(QMainWindow):
     
     def add_record(self):
         if not self.dns_manager:
-            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONE_ID")
-            return
+            if not self.init_dns_manager():
+                return
         
         dialog = DNSRecordDialog(self)
         if dialog.exec():
@@ -311,8 +372,8 @@ class MainWindow(QMainWindow):
     
     def edit_record(self):
         if not self.dns_manager:
-            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONE_ID")
-            return
+            if not self.init_dns_manager():
+                return
         
         current_row = self.table.currentRow()
         if current_row < 0:
@@ -348,8 +409,8 @@ class MainWindow(QMainWindow):
     
     def delete_record(self):
         if not self.dns_manager:
-            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONE_ID")
-            return
+            if not self.init_dns_manager():
+                return
         
         current_row = self.table.currentRow()
         if current_row < 0:
