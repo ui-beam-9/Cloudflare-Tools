@@ -25,21 +25,15 @@
 
 ### 1. 环境配置
 
-在项目根目录创建`.env`文件，包含以下内容：
+本项目提供了`.env.example`模板文件，您可以基于此文件创建自己的`.env`文件：
 
+```bash
+# 复制模板文件创建自己的环境配置
+cp .env.example .env
+# 然后编辑.env文件，填入您的实际配置
 ```
-# DNS管理器所需配置
-CLOUDFLARE_API_TOKEN=你的Cloudflare API令牌
-CLOUDFLARE_ZONE_ID=你的域名区域ID
 
-# R2管理器所需配置
-CLOUDFLARE_ACCOUNT_ID=你的Cloudflare账户ID
-CLOUDFLARE_R2_ACCESS_KEY_ID=你的R2访问密钥ID
-CLOUDFLARE_R2_SECRET_ACCESS_KEY=你的R2私有访问密钥
-CLOUDFLARE_R2_BUCKET_NAME=你的R2存储桶名称
-CLOUDFLARE_CUSTOM_DOMAIN=你的自定义域名(可选)
-R2_PUBLIC_DOMAIN=你的R2公共域名(可选)
-```
+请根据模板文件中的说明填写相应的API凭证和配置项，确保填写正确，否则程序将无法正常工作。
 
 ### 2. 安装依赖
 
@@ -97,7 +91,9 @@ python cloudflare_r2_manager.py
 ## 文件说明
 
 - `cloudflare_dns_manager.py` - Cloudflare DNS管理工具，用于管理DNS记录
-- `cloudflare_r2_manager.py` - Cloudflare R2存储管理工具，用于文件上传和管理 
+- `cloudflare_r2_manager.py` - Cloudflare R2存储管理工具，用于文件上传和管理
+- `.env.example` - 环境变量配置模板文件，包含所有需要的配置项
+- `requirements.txt` - 项目依赖列表
 
 ## 截图
 

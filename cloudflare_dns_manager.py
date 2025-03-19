@@ -164,7 +164,7 @@ class ProxiedDelegate(QStyledItemDelegate):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Cloudflare DNS Manager")
+        self.setWindowTitle("Cloudflare DNS 管理器")
         self.setMinimumSize(800, 600)
         
         # 加载配置
