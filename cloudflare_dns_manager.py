@@ -257,19 +257,75 @@ class MainWindow(QMainWindow):
     def load_zones(self):
         """加载域名配置"""
         try:
-            zones_str = os.getenv('CLOUDFLARE_ZONES')
-            if zones_str:
-                self.zones = json.loads(zones_str)
+            print("\n=== DNS 管理器配置诊断信息 ===")
             
-            # 如果没有找到多域名配置，尝试使用旧的单域名配置
-            if not self.zones:
-                zone_id = os.getenv('CLOUDFLARE_ZONE_ID')
-                if zone_id:
-                    # 使用zone_id作为键名（临时，因为我们不知道实际域名）
-                    self.zones = {f"Zone ID: {zone_id}": zone_id}
-        except json.JSONDecodeError:
-            QMessageBox.warning(self, "错误", "CLOUDFLARE_ZONES配置格式错误，请确保是有效的JSON")
-            self.zones = {}
+            # 获取脚本所在目录的绝对路径
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            print(f"脚本目录: {script_dir}")
+            print(f"当前工作目录: {os.getcwd()}")
+            
+            # 检查.env文件是否存在
+            env_path = os.path.join(script_dir, '.env')
+            env_exists = os.path.exists(env_path)
+            print(f".env 文件是否存在: {env_exists}")
+            print(f".env 文件路径: {env_path}")
+            
+            if not env_exists:
+                print("错误: 未找到 .env 文件")
+                QMessageBox.warning(self, '配置错误', '未找到 .env 文件！')
+                return
+                
+            # 加载.env文件
+            print("\n正在加载 .env 文件...")
+            load_dotenv(env_path)
+            
+            # 检查 API 令牌
+            print("\n检查 API 令牌配置:")
+            self.api_token = os.getenv('CLOUDFLARE_API_TOKEN')
+            print(f"CLOUDFLARE_API_TOKEN: {'已设置' if self.api_token else '未设置'}")
+            
+            if not self.api_token:
+                print("错误: 未设置 Cloudflare API 令牌")
+                QMessageBox.warning(self, '配置错误', '请在 .env 文件中设置 CLOUDFLARE_API_TOKEN！')
+                return
+                
+            # 检查域名配置
+            print("\n检查域名配置:")
+            zones_str = os.getenv('CLOUDFLARE_ZONES')
+            print(f"CLOUDFLARE_ZONES: {'已设置' if zones_str else '未设置'}")
+            
+            if not zones_str:
+                print("错误: 未设置域名配置")
+                QMessageBox.warning(self, '配置错误', '请在 .env 文件中设置 CLOUDFLARE_ZONES！')
+                return
+                
+            try:
+                print("\n正在解析域名配置...")
+                self.zones = json.loads(zones_str)
+                print(f"已配置的域名数量: {len(self.zones)}")
+                
+                if not self.zones:
+                    print("错误: 域名配置为空")
+                    QMessageBox.warning(self, '配置错误', '域名配置为空，请至少配置一个域名！')
+                    return
+                    
+                print("\n域名配置详情:")
+                for domain, zone_id in self.zones.items():
+                    print(f"  域名: {domain}")
+                    print(f"  区域ID: {zone_id}")
+                    
+            except json.JSONDecodeError as e:
+                error_msg = f"域名配置 JSON 解析失败: {str(e)}"
+                print(f"错误: {error_msg}")
+                QMessageBox.warning(self, '配置错误', error_msg)
+                return
+                
+            print("\n=== 诊断信息结束 ===")
+            
+        except Exception as e:
+            error_msg = f"加载域名配置失败: {str(e)}"
+            print(f"错误: {error_msg}")
+            QMessageBox.warning(self, '配置错误', error_msg)
     
     def on_domain_changed(self, domain):
         """处理域名选择变化"""

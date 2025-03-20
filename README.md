@@ -12,6 +12,7 @@
 - 多域名支持（可在界面中快速切换不同域名）
 
 ### Cloudflare R2 存储管理器
+- 多存储桶支持（可在界面中快速切换不同存储桶）
 - 文件上传（支持单个文件和整个文件夹）
 - 大文件分片上传
 - 文件浏览和管理
@@ -50,7 +51,6 @@ CLOUDFLARE_ZONES={"example.com": "区域ID1", "example.org": "区域ID2"}
 - 值为对应的Cloudflare区域ID
 - 可以配置任意数量的域名
 
-配置完成后，您可以在DNS管理器界面顶部的下拉框中切换不同的域名。
 
 ### 2. 安装依赖
 
@@ -103,7 +103,7 @@ python cloudflare_r2_manager.py
 如果不使用自定义域，可以使用R2的公共域名访问文件，格式为：
 `https://pub-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.r2.dev/<file_path>`
 
-确保在环境变量中设置`R2_PUBLIC_DOMAIN`以便应用程序能够正确生成文件URL。
+确保在环境变量中设置每个存储桶的`custom_domain`和`public_domain`以便应用程序能够正确生成文件URL。
 
 ## 文件说明
 
