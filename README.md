@@ -45,12 +45,12 @@ DNS管理器支持同时管理多个域名。在`.env`文件中，使用`CLOUDFL
 CLOUDFLARE_ZONES={"example.com": "区域ID1", "example.org": "区域ID2"}
 ```
 
-配置格式说明：
-- 使用JSON对象格式
-- 键为域名
-- 值为对应的Cloudflare区域ID
-- 可以配置任意数量的域名
+#### R2存储管理器多存储桶配置
+DNS管理器支持同时管理多个域名。在`.env`文件中，使用`R2_BUCKETS`配置多个存储桶：
 
+```json
+R2_BUCKETS={"bucket1":{"bucket_name":"存储桶1的名称","custom_domain":"存储桶1的自定义域名（可选）","public_domain":"存储桶2的自定义域名（可选）"},"bucket2":{"bucket_name":"存储桶2的名称","custom_domain":"存储桶1的自定义域名（可选）","public_domain":"存储桶2的自定义域名（可选）"}}
+```
 
 ### 2. 安装依赖
 
@@ -114,9 +114,9 @@ python cloudflare_r2_manager.py
 
 ## 截图
 
-![image-20250319093206096](/img/cloudflare_dns_manager_main.png)
+![cloudflare_dns_manager_main](/img/cloudflare_dns_manager_main.png)
 
-![image-20250319093307209](/img/cloudflare_r2_manager_upload.png)
+![cloudflare_r2_manager_main](/img/cloudflare_r2_manager_main.png)
 
 ## 开发与贡献
 
