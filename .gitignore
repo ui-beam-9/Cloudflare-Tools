@@ -86,3 +86,6 @@ cloudflare_r2_manager.json
 cloudflare_dns_manager_env.py
 cloudflare_r2_manager_env.py
 dnspod_dns_manager.py
+
+# 图标文件
+dnspod.ico

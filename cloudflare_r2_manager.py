@@ -235,6 +235,11 @@ class R2UploaderGUI(QMainWindow):
         self.setWindowTitle('Cloudflare R2 Manager')
         self.setMinimumSize(1200, 800)
         
+        # 设置应用图标
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "favicon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            
         # 创建主窗口部件
         main_widget = QWidget()
         self.setCentralWidget(main_widget)

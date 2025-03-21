@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 cloudflare==4.1.0
 jmespath==1.0.1
 python-dateutil==2.9.0.post0
+pillow==11.1.0

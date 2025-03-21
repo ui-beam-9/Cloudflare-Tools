@@ -45,7 +45,7 @@ pip install -r requirements.txt
 或者手动安装各个依赖：
 
 ```bash
-pip install requests==2.32.3 PyQt6==6.8.1 boto3==1.37.17 urllib3==2.3.0 python-dotenv==1.0.1 cloudflare==4.1.0 jmespath==1.0.1 python-dateutil==2.9.0.post0
+pip install requests==2.32.3 PyQt6==6.8.1 boto3==1.37.17 urllib3==2.3.0 python-dotenv==1.0.1 cloudflare==4.1.0 pillow==11.1.0
 ```
 
 ### 3. 运行程序

@@ -118,6 +118,23 @@ class CloudflareDNSManagerGUI:
         self.root.geometry("900x600")
         self.root.resizable(True, True)
         
+        # 设置应用图标
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "favicon.ico")
+        if os.path.exists(icon_path):
+            # 对于tkinter应用, 需要使用PhotoImage来设置图标
+            try:
+                from PIL import Image, ImageTk
+                icon = ImageTk.PhotoImage(Image.open(icon_path))
+                self.root.iconphoto(True, icon)
+            except ImportError:
+                # 如果没有PIL库，尝试使用tk原生方法
+                try:
+                    from tkinter import PhotoImage
+                    icon = PhotoImage(file=icon_path)
+                    self.root.iconphoto(True, icon)
+                except:
+                    pass  # 如果无法加载图标，则忽略
+        
         # 初始化变量
         self.current_zone = None
         self.current_zone_id = None
