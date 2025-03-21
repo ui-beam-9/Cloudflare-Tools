@@ -451,7 +451,7 @@ R2_BUCKETS={
                 self.show_result(error_msg, True)
                 QMessageBox.information(self, '配置文件创建成功', error_msg)
                 return False
-            
+                
             # 加载.env文件
             print("\n正在加载 .env 文件...")
             load_dotenv(env_path)
@@ -481,7 +481,7 @@ R2_BUCKETS={
                 self.show_result(error_msg, True)
                 QMessageBox.warning(self, '配置错误', error_msg)
                 return False
-            
+                
             # 获取存储桶配置
             print("\n检查存储桶配置:")
             buckets_str = os.getenv('R2_BUCKETS')
@@ -491,7 +491,7 @@ R2_BUCKETS={
                 self.show_result(error_msg, True)
                 QMessageBox.warning(self, '配置错误', error_msg)
                 return False
-            
+                
             try:
                 print("正在解析 R2_BUCKETS JSON 配置...")
                 self.buckets = json.loads(buckets_str)
@@ -502,14 +502,14 @@ R2_BUCKETS={
                 self.show_result(error_msg, True)
                 QMessageBox.warning(self, '配置错误', error_msg)
                 return False
-            
+                
             if not self.buckets:
                 error_msg = "存储桶配置为空，请至少配置一个存储桶。"
                 print(f"\n错误: {error_msg}")
                 self.show_result(error_msg, True)
                 QMessageBox.warning(self, '配置错误', error_msg)
                 return False
-            
+                
             # 检查每个存储桶的配置
             print("\n存储桶配置详情:")
             for bucket_name, config in self.buckets.items():
@@ -547,21 +547,21 @@ R2_BUCKETS={
                 self.show_result(error_msg, True)
                 QMessageBox.warning(self, '初始化错误', error_msg)
                 return False
-            
+                
             # 清空并填充存储桶下拉框
             print("\n正在填充存储桶下拉框...")
             self.bucket_combo.clear()
             for bucket_name in self.buckets.keys():
                 self.bucket_combo.addItem(bucket_name)
             print(f"已添加 {self.bucket_combo.count()} 个存储桶到下拉框")
-            
+                
             # 默认选择第一个存储桶
             if self.bucket_combo.count() > 0:
                 print("\n正在选择默认存储桶...")
                 self.bucket_combo.setCurrentIndex(0)
                 self.switch_bucket(0)
                 print("已选择默认存储桶")
-            
+                
             print("\n=== 诊断信息结束 ===")
             self.show_result("R2客户端初始化成功", False)
             return True
@@ -573,388 +573,684 @@ R2_BUCKETS={
             QMessageBox.warning(self, '初始化错误', error_msg)
             return False
 
+    def _create_s3_client(self, bucket_config):
+        """创建 S3 客户端"""
+        return boto3.client(
+            service_name='s3',
+            endpoint_url=bucket_config['endpoint_url'],
+            aws_access_key_id=bucket_config['access_key_id'],
+            aws_secret_access_key=bucket_config['access_key_secret'],
+            config=Config(
+                signature_version='s3v4',
+                retries={'max_attempts': 3},
+            ),
+            region_name='auto',
+            verify=False
+        )
+
+    def init_file_upload_ui(self, layout):
+        """初始化文件上传界面"""
+        # 左侧面板
+        left_panel = QWidget()
+        left_layout = QVBoxLayout()
+        left_panel.setLayout(left_layout)
+        
+        # 添加拖放提示标签
+        self.drop_label = QLabel('拖拽文件或文件夹到这里上传')
+        self.drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.drop_label.setStyleSheet("""
+            QLabel {
+                background-color: #f0f0f0;
+                border: 2px dashed #999;
+                border-radius: 5px;
+                padding: 20px;
+                color: #666;
+            }
+            QLabel:hover {
+                background-color: #e0e0e0;
+                border-color: #666;
+            }
+        """)
+        left_layout.addWidget(self.drop_label)
+
+        # 添加文件选择相关控件到左侧面板
+        self.file_path_input = QLineEdit()
+        self.file_path_input.setPlaceholderText('选择文件或文件夹路径')
+        self.file_path_input.setMinimumHeight(40)  # 增加输入框高度
+        left_layout.addWidget(self.file_path_input)
+
+        button_layout = QHBoxLayout()
+        browse_file_btn = QPushButton('选择文件')
+        browse_folder_btn = QPushButton('选择文件夹')
+        browse_file_btn.setMinimumHeight(40)  # 增加按钮高度
+        browse_folder_btn.setMinimumHeight(40)  # 增加按钮高度
+        browse_file_btn.clicked.connect(self.browse_file)
+        browse_folder_btn.clicked.connect(self.browse_folder)
+        button_layout.addWidget(browse_file_btn)
+        button_layout.addWidget(browse_folder_btn)
+        left_layout.addLayout(button_layout)
+
+        self.custom_name_input = QLineEdit()
+        self.custom_name_input.setPlaceholderText('自定义文件名（可选）')
+        self.custom_name_input.setMinimumHeight(40)  # 增加输入框高度
+        left_layout.addWidget(self.custom_name_input)
+
+        upload_btn = QPushButton('上传')
+        upload_btn.setMinimumHeight(40)  # 增加按钮高度
+        upload_btn.clicked.connect(self.upload_file)
+        left_layout.addWidget(upload_btn)
+
+        # 增加各控件之间的间距
+        left_layout.setSpacing(10)  # 设置布局中控件之间的垂直间距
+
+        self.progress_bar = QProgressBar()
+        left_layout.addWidget(self.progress_bar)
+
+        # 添加文件信息显示
+        self.current_file_info = QTextEdit()
+        self.current_file_info.setReadOnly(True)
+        self.current_file_info.setPlaceholderText('当前文件信息')
+        left_layout.addWidget(self.current_file_info)
+
+        # 添加上传结果显示
+        self.result_info = QTextEdit()
+        self.result_info.setReadOnly(True)
+        self.result_info.setPlaceholderText('上传结果')
+        left_layout.addWidget(self.result_info)
+
+        # 右侧面板
+        right_panel = QWidget()
+        right_layout = QVBoxLayout()
+        right_panel.setLayout(right_layout)
+
+        # 添加存储桶选择下拉框
+        bucket_layout = QHBoxLayout()
+        bucket_label = QLabel('当前存储桶:')
+        self.bucket_combo = QComboBox()
+        self.bucket_combo.currentIndexChanged.connect(self.switch_bucket)
+        bucket_layout.addWidget(bucket_label)
+        bucket_layout.addWidget(self.bucket_combo)
+        bucket_layout.addStretch()
+        right_layout.addLayout(bucket_layout)
+
+        # 添加当前路径显示
+        path_layout = QHBoxLayout()
+        self.back_button = QPushButton('返回上级')
+        self.back_button.clicked.connect(self.go_back)
+        self.back_button.setEnabled(False)  # 初始禁用
+        
+        # 设置返回按钮的固定宽度
+        self.back_button.setFixedWidth(80)  # 设置固定宽度为80像素
+        
+        self.current_path_label = QLabel('当前路径: /')
+        path_layout.addWidget(self.back_button)
+        path_layout.addWidget(self.current_path_label)
+        
+        # 修改视图布局，添加刷新按钮
+        view_layout = QHBoxLayout()
+        self.bucket_size_label = QLabel('桶大小: 统计中...')
+        
+        view_layout.addWidget(self.bucket_size_label)
+        view_layout.addStretch()
+        
+        # 将视图布局添加到右侧布局中
+        right_layout.addLayout(view_layout)
+        right_layout.addLayout(path_layout)
+
+        # 表视图
+        self.file_list = QTreeWidget()
+        self.file_list.setHeaderLabels(['名称', '类型', '大小', '修改时间'])
+        self.file_list.setColumnWidth(0, 300)
+        self.file_list.itemDoubleClicked.connect(self.on_item_double_clicked)
+        self.file_list.setAcceptDrops(True)  # 启用拖放
+        self.file_list.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)  # 允许多选
+        
+        right_layout.addWidget(self.file_list)
+
+        # 添加左右面板到主布局
+        main_layout.addWidget(left_panel, 1)
+        main_layout.addWidget(right_panel, 1)
+
+        # 初始化当前路径
+        self.current_path = ''
+
+        # 为文件列表右键菜单
+        self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.file_list.customContextMenuRequested.connect(self.show_context_menu)
+
+        # 添加快捷键支持
+        self.file_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # 在 init_ui 方法末尾添加快捷键设置
+        # 删除文件快捷键 (Ctrl+D)
+        delete_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
+        delete_shortcut.activated.connect(self.delete_selected_item)
+
+        # 删除目录快捷键 (Ctrl+L)
+        delete_dir_shortcut = QShortcut(QKeySequence("Ctrl+L"), self)
+        delete_dir_shortcut.activated.connect(self.delete_selected_directory)
+
+        # 进入目录快捷键 (Enter)
+        enter_dir_shortcut = QShortcut(QKeySequence("Return"), self)
+        enter_dir_shortcut.activated.connect(self.enter_selected_directory)
+
+        # 自定义域名分享快捷键 (Ctrl+Z)
+        custom_share_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
+        custom_share_shortcut.activated.connect(lambda: self.share_selected_item(True))
+
+        # R2.dev分享快捷键 (Ctrl+E)
+        r2_share_shortcut = QShortcut(QKeySequence("Ctrl+E"), self)
+        r2_share_shortcut.activated.connect(lambda: self.share_selected_item(False))
+
     def switch_bucket(self, index):
         """切换存储桶"""
+        if not hasattr(self, 'buckets') or index < 0:
+            return
+            
+        # 获取选中的存储桶名称和配置
+        bucket_name = self.bucket_combo.currentText()
+        bucket_config = self.buckets[bucket_name]
+        
         try:
-            # 获取当前选中的存储桶名称
-            current_bucket_name = self.bucket_combo.itemText(index)
-            print(f"\n正在切换到存储桶: {current_bucket_name}")
-            
-            # 检查是否已初始化 S3 客户端
+            # 确保 s3_client 已初始化
             if not hasattr(self, 's3_client'):
-                print("S3 客户端未初始化，正在初始化...")
-                self.init_r2_client()
+                # 获取通用凭证
+                account_id = os.getenv('R2_ACCOUNT_ID')
+                access_key_id = os.getenv('R2_ACCESS_KEY_ID')
+                access_key_secret = os.getenv('R2_ACCESS_KEY_SECRET')
+                endpoint_url = os.getenv('R2_ENDPOINT_URL')
+
+                if not all([account_id, access_key_id, access_key_secret, endpoint_url]):
+                    raise Exception("缺少必需的R2凭证配置")
+
+                # 初始化 S3 客户端
+                self.s3_client = boto3.client(
+                    service_name='s3',
+                    endpoint_url=endpoint_url,
+                    aws_access_key_id=access_key_id,
+                    aws_secret_access_key=access_key_secret,
+                    config=Config(
+                        signature_version='s3v4',
+                        retries={'max_attempts': 3},
+                    ),
+                    region_name='auto',
+                    verify=False
+                )
             
-            # 更新当前存储桶配置
-            self.current_bucket_name = current_bucket_name
-            self.current_bucket_config = self.buckets[current_bucket_name]
+            # 更新当前存储桶信息
+            self.current_bucket_name = bucket_config['bucket_name']  # 使用bucket_name字段
+            self.current_bucket_config = bucket_config
             
-            # 更新存储桶大小
-            self.calculate_bucket_size()
+            # 测试连接
+            self.s3_client.head_bucket(Bucket=self.current_bucket_name)
             
-            # 更新文件列表
-            self.refresh_file_list()
+            # 重置当前路径
+            self.current_path = ''
             
-            print(f"已切换到存储桶: {current_bucket_name}")
+            # 刷新文件列表
+            self.refresh_file_list(calculate_bucket_size=True)
+            
+            self.show_result(f"已切换到存储桶: {bucket_name}", False)
+            
         except Exception as e:
             error_msg = f"切换存储桶失败: {str(e)}"
-            print(f"\n错误: {error_msg}")
             self.show_result(error_msg, True)
-            QMessageBox.warning(self, '切换失败', error_msg)
-
-    def calculate_bucket_size(self):
-        """计算存储桶大小"""
-        try:
-            print("\n正在计算存储桶大小...")
-            total_size = 0
-            for obj in self.s3_client.list_objects_v2(Bucket=self.current_bucket_name)['Contents']:
-                total_size += obj['Size']
-            self.bucket_size_label.setText(f"桶大小: {self.format_size(total_size)}")
-            print(f"存储桶 {self.current_bucket_name} 大小: {self.format_size(total_size)}")
-        except Exception as e:
-            error_msg = f"计算桶大小时发生错误: {str(e)}"
-            print(f"\n错误: {error_msg}")
-            self.show_result(error_msg, True)
-            QMessageBox.warning(self, '计算失败', error_msg)
-
-    def format_size(self, size_bytes):
-        """格式化文件大小"""
-        if size_bytes == 0:
-            return "0B"
-        size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        i = int(math.floor(math.log(size_bytes, 1024)))
-        p = math.pow(1024, i)
-        s = round(size_bytes / p, 2)
-        return "%s %s" % (s, size_name[i])
-
-    def refresh_file_list(self):
-        """刷新文件列表"""
-        try:
-            print("\n正在刷新文件列表...")
-            self.file_list.clear()
-            self.file_list_items.clear()
-            self.icon_list_items.clear()
-            
-            # 获取当前存储桶的文件列表
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.current_bucket_name,
-                Prefix=self.current_path,
-                Delimiter='/'  # 使用分隔符来区分文件夹
-            )
-            
-            # 处理文件夹（CommonPrefixes）
-            for prefix in response.get('CommonPrefixes', []):
-                prefix_name = prefix['Prefix']
-                if prefix_name != self.current_path:
-                    self.add_directory_item(prefix_name)
-            
-            # 处理文件
-            for obj in response.get('Contents', []):
-                key = obj['Key']
-                # 跳过当前路径
-                if key == self.current_path:
-                    continue
-                # 只显示当前路径下的文件
-                if '/' not in key[len(self.current_path):] or key.endswith('/'):
-                    if not key.endswith('/'):  # 不是文件夹才添加
-                        self.add_file_item(obj)
-            
-            # 启用返回按钮
-            self.back_button.setEnabled(self.current_path != '')
-            
-            print(f"已刷新存储桶 {self.current_bucket_name} 的文件列表")
-            print(f"当前路径: {self.current_path}")
-        except Exception as e:
-            error_msg = f"刷新文件列表失败: {str(e)}"
-            print(f"\n错误: {error_msg}")
-            self.show_result(error_msg, True)
-            QMessageBox.warning(self, '刷新失败', error_msg)
-
-    def add_file_item(self, obj):
-        """添加文件项"""
-        key = obj['Key']
-        size = obj['Size']
-        last_modified = obj['LastModified'].strftime('%Y-%m-%d %H:%M:%S')
-        
-        item = QTreeWidgetItem([os.path.basename(key), '文件', self.format_size(size), last_modified])
-        item.setData(0, Qt.ItemDataRole.UserRole, key)
-        self.file_list_items[key] = item
-        self.file_list.addTopLevelItem(item)
-        
-        # 设置文件图标
-        icon = self.get_file_icon(key)
-        self.icon_list_items[key] = icon
-        item.setIcon(0, icon)
-
-    def add_directory_item(self, key):
-        """添加目录项"""
-        # 从完整路径中提取文件夹名称
-        if self.current_path:
-            folder_name = key[len(self.current_path):].rstrip('/')
-        else:
-            folder_name = key.rstrip('/')
-            
-        if '/' in folder_name:
-            folder_name = folder_name.split('/')[0]
-            
-        item = QTreeWidgetItem([folder_name, '目录', '', ''])
-        item.setData(0, Qt.ItemDataRole.UserRole, key)
-        self.file_list_items[key] = item
-        self.file_list.addTopLevelItem(item)
-        
-        # 设置目录图标
-        icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
-        self.icon_list_items[key] = icon
-        item.setIcon(0, icon)
-
-    def get_file_icon(self, file_path):
-        """获取文件图标"""
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.ico']:
-            return QIcon(QPixmap(file_path))
-        elif ext in ['.txt', '.md', '.log', '.csv', '.json', '.xml', '.html', '.css', '.js']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
-        elif ext in ['.pdf']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
-        elif ext in ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.mpg', '.mpeg', '.3gp']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
-        elif ext in ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolume)
-        elif ext in ['.zip', '.rar', '.7z', '.tar', '.gz', '.tgz', '.bz2', '.xz']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogListView)
-        elif ext in ['.doc', '.docx']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogStart)
-        elif ext in ['.xls', '.xlsx']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView)
-        elif ext in ['.ppt', '.pptx']:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
-            else:
-            return self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+            QMessageBox.warning(self, '切换错误', error_msg)
 
     def browse_file(self):
-        """浏览文件"""
-        file_path, _ = QFileDialog.getOpenFileName(self, '选择文件')
-        if file_path:
-            self.file_path_input.setText(file_path)
+        """打开文件选择对话框"""
+        file_name, _ = QFileDialog.getOpenFileName(self, '选择文件')
+        if file_name:
+            self.file_path_input.setText(file_name)
 
     def browse_folder(self):
-        """浏览文件夹"""
-        folder_path = QFileDialog.getExistingDirectory(self, '选择文件夹')
+        """打开文件夹选择对话框"""
+        folder_path = QFileDialog.getExistingDirectory(self, '选文件夹')
         if folder_path:
             self.file_path_input.setText(folder_path)
+            # 显示待上传文件列表
+            self.show_pending_files(folder_path)
 
-    def upload_file(self):
-        """上传文件"""
-        file_path = self.file_path_input.text()
-        if not file_path:
-            self.show_result('请选择文件或文件夹', True)
-                return
-
-        if os.path.isfile(file_path):
-            self.upload_single_file(file_path)
-        elif os.path.isdir(file_path):
-            self.upload_folder(file_path)
-        else:
-            self.show_result('无效的文件或文件夹路径', True)
-
-    def upload_single_file(self, file_path):
-        """上传单个文件"""
+    def show_pending_files(self, folder_path):
+        """显示待上传的文列表"""
         try:
-            custom_name = self.custom_name_input.text()
-            if custom_name:
-                r2_key = os.path.join(self.current_path, custom_name)
-            else:
-                r2_key = os.path.join(self.current_path, os.path.basename(file_path))
+            total_size = 0
+            file_list = []
             
-            # 创建上传线程
-            upload_thread = UploadThread(self.s3_client, self.current_bucket_name, file_path, r2_key)
-            upload_thread.progress_updated.connect(self.update_progress)
-            upload_thread.status_updated.connect(self.update_status)
-            upload_thread.speed_updated.connect(self.update_speed)
-            upload_thread.upload_finished.connect(self.on_upload_finished)
-            
-            # 启动上传线程
-                    upload_thread.start()
-                except Exception as e:
-            error_msg = f"上传文件失败: {str(e)}"
-                    self.show_result(error_msg, True)
-            QMessageBox.warning(self, '上传失败', error_msg)
-
-    def upload_folder(self, folder_path):
-        """上传文件夹"""
-        try:
-            for root, dirs, files in os.walk(folder_path):
+            # 遍历文件夹获取所有文件信息
+            for root, _, files in os.walk(folder_path):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    r2_key = os.path.join(self.current_path, os.path.relpath(file_path, folder_path))
-                    
-                    # 创建上传线程
-                    upload_thread = UploadThread(self.s3_client, self.current_bucket_name, file_path, r2_key)
-                    upload_thread.progress_updated.connect(self.update_progress)
-                    upload_thread.status_updated.connect(self.update_status)
-                    upload_thread.speed_updated.connect(self.update_speed)
-                    upload_thread.upload_finished.connect(self.on_upload_finished)
-                    
-                    # 启动上传线程
-                    upload_thread.start()
+                    relative_path = os.path.relpath(file_path, folder_path)
+                    size = os.path.getsize(file_path)
+                    total_size += size
+                    file_list.append((relative_path, size))
+
+            # 格式化显示信息
+            info_text = f"文件夹路径：{folder_path}\n"
+            info_text += f"总文件数：{len(file_list)} 个\n"
+            info_text += f"总大小：{total_size / 1024 / 1024:.2f} MB\n\n"
+            info_text += "待上传文件列表：\n"
+            info_text += "-" * 50 + "\n"
+            
+            # 添加文件列表，按照文件大小降序排序
+            for relative_path, size in sorted(file_list, key=lambda x: x[1], reverse=True):
+                info_text += f"📄 {relative_path}\n"
+                info_text += f"   大小：{size / 1024 / 1024:.2f} MB\n"
+            
+            self.current_file_info.setText(info_text)
+
         except Exception as e:
-            error_msg = f"上传文件夹失败: {str(e)}"
-            self.show_result(error_msg, True)
-            QMessageBox.warning(self, '上传失败', error_msg)
+            self.current_file_info.setText(f"获取文列表失败：{str(e)}")
 
-    def update_progress(self, percentage):
-        """更新进度条"""
-        self.progress_bar.setValue(percentage)
+    def _upload_single_file(self, file_path):
+        """上传单文件，支持分片上传"""
+        try:
+            file_size = os.path.getsize(file_path)
+            file_info = f"文件路径：{file_path}\n"
+            file_info += f"文件大小：{file_size / 1024 / 1024:.2f} MB\n"
+            file_info += f"文件类型：{os.path.splitext(file_path)[1]}"
+            self.current_file_info.setText(file_info)
 
-    def update_status(self, status, is_error):
-        """更新状态"""
-        if is_error:
-            self.show_result(status, True)
-        else:
-            self.show_result(status, False)
+            custom_name = self.custom_name_input.text()
+            r2_key = custom_name if custom_name else os.path.basename(file_path)
 
-    def update_speed(self, speed):
-        """更新速度"""
-        speed_str = self.format_size(speed) + '/s'
-        self.statusBar().showMessage(f"上传速度: {speed_str}")
+            # 显示开始上传的消息
+            self.show_result(f'开始上传文件: {r2_key}', False)
 
-    def on_upload_finished(self, success, message):
-        """上传完成"""
-        if success:
-            self.show_result(message, False)
-            self.refresh_file_list()
-        else:
-            self.show_result(message, True)
+            # 设置分片大小为20MB
+            chunk_size = 20 * 1024 * 1024  # 20MB in bytes
+            
+            # 如果文件大小超过50MB，使用分片上传
+            if file_size > 50 * 1024 * 1024:  # 50MB
+                try:
+                    # 初始化分片上传
+                    mpu = self.s3_client.create_multipart_upload(
+                        Bucket=self.current_bucket_name,
+                        Key=r2_key
+                    )
+                    
+                    # 计算分片数量
+                    total_parts = (file_size + chunk_size - 1) // chunk_size
+                    parts = []
+                    total_uploaded = 0
+                    
+                    with open(file_path, 'rb') as f:
+                        for part_number in range(1, total_parts + 1):
+                            # 读取分片数据
+                            data = f.read(chunk_size)
+                            data_len = len(data)
+                            total_uploaded += data_len
+                            
+                            # 创建进度回调
+                            self.upload_worker = UploadWorker(self)
+                            self.upload_worker.progress_updated.connect(self.progress_bar.setValue)
+                            self.upload_worker.status_updated.connect(self.show_result)
+                            self.upload_worker.set_file_info(
+                                file_path, 
+                                file_size,  # 使用总文件大小而不是分片大小
+                                part_number, 
+                                total_parts
+                            )
+                            
+                            # 更新总体进度
+                            percentage = (total_uploaded / file_size) * 100
+                            self.progress_bar.setValue(int(percentage))
+                            self.show_result(
+                                f'正在上传: {os.path.basename(file_path)} - {percentage:.1f}% (分片 {part_number}/{total_parts})', 
+                                False
+                            )
+                            
+                            # 上传分片
+                            response = self.s3_client.upload_part(
+                                Bucket=self.current_bucket_name,
+                                Key=r2_key,
+                                PartNumber=part_number,
+                                UploadId=mpu['UploadId'],
+                                Body=data
+                            )
+                            
+                            # 记录分片信息
+                            parts.append({
+                                'PartNumber': part_number,
+                                'ETag': response['ETag']
+                            })
+                            
+                            self.show_result(f'分片 {part_number}/{total_parts} 上传完成', False)
+                    
+                    # 完成分片上传
+                    self.s3_client.complete_multipart_upload(
+                        Bucket=self.current_bucket_name,
+                        Key=r2_key,
+                        UploadId=mpu['UploadId'],
+                        MultipartUpload={'Parts': parts}
+                    )
+                    
+                except Exception as e:
+                    # 如果上传失败，中止分片上传
+                    self.s3_client.abort_multipart_upload(
+                        Bucket=self.current_bucket_name,
+                        Key=r2_key,
+                        UploadId=mpu['UploadId']
+                    )
+                    raise e
+                
+            else:
+                # 小文件使用普通上传
+                self.upload_worker = UploadWorker(self)
+                self.upload_worker.progress_updated.connect(self.progress_bar.setValue)
+                self.upload_worker.status_updated.connect(self.show_result)
+                self.upload_worker.set_file_info(file_path, file_size)
 
-    def show_result(self, message, is_error):
-        """显示结果"""
-        if is_error:
-            self.result_info.setTextColor(Qt.GlobalColor.red)
-        else:
-            self.result_info.setTextColor(Qt.GlobalColor.black)
-        self.result_info.append(message)
+                self.s3_client.upload_file(
+                    file_path, 
+                    self.current_bucket_name, 
+                    r2_key,
+                    Callback=self.upload_worker
+                )
 
-    def on_item_double_clicked(self, item, column):
-        """双击文件或目录"""
-        key = item.data(0, Qt.ItemDataRole.UserRole)
-        if key.endswith('/'):
-            self.enter_directory(key)
-        else:
-            self.download_file(key)
+            self.progress_bar.setValue(100)
+            self.show_result(f'文件 {r2_key} 上传成功！', False)
 
-    def enter_directory(self, key):
-        """进入目录"""
-        self.current_path = key
-        self.refresh_file_list()
-        self.current_path_label.setText(f"当前路径: {self.current_path}")
+        except Exception as e:
+            self.show_result(f'上传失败：{str(e)}', True)
+        finally:
+            self.progress_bar.setValue(0)
+            self.file_path_input.clear()
+            self.custom_name_input.clear()
+
+    def _upload_folder(self, folder_path):
+        """上传文件夹"""
+        try:
+            self.current_upload_folder = folder_path
+            base_folder_name = os.path.basename(folder_path)
+            all_files = self._get_folder_files(folder_path)
+            
+            total_files = len(all_files)
+            if total_files == 0:
+                self.show_result('文件夹为空，没有上传的文件', True)
+                return
+
+            self.show_result(f'开始上传文件夹: {folder_path}', False)
+            uploaded_files = 0
+            failed_files = []
+
+            self.update_upload_info(self.current_upload_folder, total_files, uploaded_files)
+
+            for local_path, relative_path in all_files:
+                try:
+                    # 构建目标文件路径
+                    target_file_path = os.path.join(base_folder_name, relative_path).replace('\\', '/')
+                    file_size = os.path.getsize(local_path)
+                    current_file = os.path.basename(local_path)
+
+                    # 显示开始上传当前文件的信息
+                    self.show_result(f'开始上传: {current_file} ({self._format_size(file_size)})', False)
+
+                    # 创建并启动上传线程
+                    upload_thread = UploadThread(
+                        self.s3_client,
+                        self.current_bucket_name,
+                        local_path,
+                        target_file_path
+                    )
+
+                    # 连接信号
+                    upload_thread.progress_updated.connect(self.progress_bar.setValue)
+                    upload_thread.status_updated.connect(self.show_result)
+                    upload_thread.speed_updated.connect(lambda speed: self.update_upload_info(
+                        self.current_upload_folder,
+                        total_files,
+                        uploaded_files,
+                        current_file,
+                        file_size,
+                        speed
+                    ))
+
+                    # 启动线程并等待完成
+                    upload_thread.start()
+                    while not upload_thread.isFinished():
+                        QApplication.processEvents()
+                        time.sleep(0.1)
+
+                    if upload_thread.isFinished():
+                        uploaded_files += 1
+                        self.show_result(f'✅ 文件上传成功: {current_file}', False)
+
+                except Exception as e:
+                    error_msg = f'❌ 文件上传失败：{os.path.basename(local_path)} - {str(e)}'
+                    self.show_result(error_msg, True)
+                    failed_files.append((relative_path, str(e)))
+
+                finally:
+                    self.progress_bar.setValue(0)
+                    QApplication.processEvents()
+
+            # 显示最终上传结果
+            self._show_final_results(uploaded_files, total_files, failed_files)
+
+        except Exception as e:
+            self.show_result(f'文件夹上传失败：{str(e)}', True)
+        finally:
+            self.progress_bar.setValue(0)
+
+    def calculate_bucket_size(self):
+        """计算整个桶的总大小"""
+        try:
+            # 更新标签显示正在统计
+            self.bucket_size_label.setText('桶大小: 统计中...')
+            QApplication.processEvents()  # 确保UI更新
+            
+            total_size = 0
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            # 遍历所有对象，不使用 prefix
+            for page in paginator.paginate(Bucket=self.current_bucket_name):
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        if not obj['Key'].endswith('/'):  # 排除目录
+                            total_size += obj['Size']
+            
+            # 更新显示
+            formatted_size = self._format_size(total_size)
+            self.bucket_size_label.setText(f'桶大小: {formatted_size}')
+            
+        except Exception as e:
+            print(f"计算桶大小时发生错误: {str(e)}")
+            self.bucket_size_label.setText('桶大小: 计算失败')
+
+    def refresh_file_list(self, prefix='', calculate_bucket_size=False):
+        """刷新文件列表"""
+        try:
+            # 清空当前显示
+            self.file_list.clear()
+            
+            # 仅在需要时计算桶大小
+            if calculate_bucket_size:
+                self.calculate_bucket_size()
+                
+            # 获取文件列表
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.current_bucket_name, 
+                Prefix=prefix, 
+                Delimiter='/'
+            )
+            
+            # 更新当前路径显示
+            self.current_path_label.setText(f'当前路径: /{prefix}')
+            self.current_path = prefix
+            self.back_button.setEnabled(bool(prefix))
+            
+            # 存储文件和目录项，以便排序
+            files = []
+            directories = []
+            
+            # 处理文件
+            if 'Contents' in response:
+                for obj in response['Contents']:
+                    if obj['Key'] == prefix or obj['Key'].endswith('/'):
+                        continue
+                    
+                    file_name = obj['Key'].split('/')[-1]
+                    files.append({
+                        'name': file_name,
+                        'key': obj['Key'],
+                        'size': obj['Size'],
+                        'last_modified': obj['LastModified']
+                    })
+            
+            # 处理目录
+            if 'CommonPrefixes' in response:
+                for prefix_obj in response['CommonPrefixes']:
+                    dir_name = prefix_obj['Prefix'].rstrip('/').split('/')[-1] + '/'
+                    directories.append({
+                        'name': dir_name,
+                        'prefix': prefix_obj['Prefix']
+                    })
+            
+            # 按最后修改时间降序排文件（最新的在前面）
+            files.sort(key=lambda x: x['last_modified'], reverse=True)
+            
+            # 先添加文件
+            for file in files:
+                # 列表视图项
+                tree_item = QTreeWidgetItem(self.file_list)
+                tree_item.setText(0, file['name'])
+                tree_item.setText(1, self._get_file_type(file['name']))
+                tree_item.setText(2, self._format_size(file['size']))
+                tree_item.setText(3, file['last_modified'].strftime('%Y-%m-%d %H:%M:%S'))
+                tree_item.setIcon(0, self._get_file_icon(file['name']))
+                tree_item.setData(0, Qt.ItemDataRole.UserRole, file['key'])
+            
+            # 再添加目录
+            for directory in directories:
+                # 列表视图项
+                tree_item = QTreeWidgetItem(self.file_list)
+                tree_item.setText(0, directory['name'])
+                tree_item.setText(1, '目录')
+                tree_item.setIcon(0, self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+                tree_item.setData(0, Qt.ItemDataRole.UserRole, directory['prefix'])
+
+        except Exception as e:
+            QMessageBox.warning(self, '错误', f'获取文件列表失败：{str(e)}')
+
+    def on_item_double_clicked(self, item):
+        """处理双击事件"""
+        path = item.data(0, Qt.ItemDataRole.UserRole)
+        if item.text(1) == '目录':
+            self.refresh_file_list(path, calculate_bucket_size=False)  # 不重新计算桶大小
 
     def go_back(self):
         """返回上级目录"""
         if self.current_path:
-            # 去掉末尾的斜杠（如果有）
-            self.current_path = self.current_path.rstrip('/')
-            # 获取上级目录路径
-            self.current_path = os.path.dirname(self.current_path)
-            # 如果不是根目录，添加末尾的斜杠
-            if self.current_path:
-                self.current_path += '/'
-            # 更新路径显示
-            self.current_path_label.setText(f"当前路径: {'/' if not self.current_path else self.current_path}")
-            # 刷新文件列表
-            self.refresh_file_list()
-            # 更新返回按钮状态
-            self.back_button.setEnabled(bool(self.current_path))
+            # 除去最后一个目录
+            parent_path = '/'.join(self.current_path.rstrip('/').split('/')[:-1])
+            if parent_path:
+                parent_path += '/'
+            self.refresh_file_list(parent_path, calculate_bucket_size=False)  # 不重新计算桶大小
 
-    def download_file(self, key):
-        """下载文件"""
+    def _get_file_type(self, filename):
+        """获取文件型"""
+        ext = os.path.splitext(filename)[1].lower()
+        if not ext:
+            return '--'
+        return ext[1:].upper()  # 移除点号并转为大写
+
+    def _format_size(self, size_in_bytes):
+        """格式化文件大小"""
         try:
-            local_path, _ = QFileDialog.getSaveFileName(self, '保存文件', os.path.basename(key))
-            if local_path:
-                self.s3_client.download_file(self.current_bucket_name, key, local_path)
-                self.show_result(f"文件下载成功: {local_path}", False)
+            # 定义单位和转换基数
+            units = ['B', 'KB', 'MB', 'GB', 'TB']
+            base = 1024
+            
+            # 如果小于1024字节，直接返回字节大小
+            if size_in_bytes < base:
+                return f"{size_in_bytes:.2f} B"
+            
+            # 计算合适的单位级别
+            exp = int(math.log(size_in_bytes, base))
+            if exp >= len(units):
+                exp = len(units) - 1
+                
+            # 计算最终大小
+            final_size = size_in_bytes / (base ** exp)
+            return f"{final_size:.2f} {units[exp]}"
+            
         except Exception as e:
-            error_msg = f"下载文件失败: {str(e)}"
-            self.show_result(error_msg, True)
-            QMessageBox.warning(self, '下载失败', error_msg)
+            return "计算错误"
 
-    def show_context_menu(self, pos):
-        """显示右键菜单"""
-        item = self.file_list.itemAt(pos)
-        if item:
-            menu = QMenu(self)
-            
-            # 添加删除文件或目录选项
-            delete_action = QAction('删除', self)
-            delete_action.triggered.connect(self.delete_selected_item)
-            menu.addAction(delete_action)
-            
-            # 添加分享选项
-            share_menu = menu.addMenu('分享')
-            custom_share_action = QAction('自定义域名', self)
-            custom_share_action.triggered.connect(lambda: self.share_selected_item(True))
-            share_menu.addAction(custom_share_action)
-            r2_share_action = QAction('R2.dev', self)
-            r2_share_action.triggered.connect(lambda: self.share_selected_item(False))
-            share_menu.addAction(r2_share_action)
-            
-            # 添加导出URL选项
-            export_url_action = QAction('导出URL', self)
-            export_url_action.triggered.connect(self.export_selected_url)
-            menu.addAction(export_url_action)
-            
-            menu.exec(self.file_list.mapToGlobal(pos))
-
-    def delete_selected_item(self):
-        """删除选中的文件或目录"""
-        selected_items = self.file_list.selectedItems()
-        if not selected_items:
-            self.show_result('请选择要删除的文件或目录', True)
-            return
+    def show_result(self, message, is_error=False):
+        """示执行结果（倒序显示，最新的在上面）"""
+        timestamp = QDateTime.currentDateTime().toString('yyyy-MM-dd hh:mm:ss')
+        formatted_message = f"[{timestamp}] {'❌ ' if is_error else '✅ '}{message}"
         
-        for item in selected_items:
-            key = item.data(0, Qt.ItemDataRole.UserRole)
-            if key.endswith('/'):
-                self.delete_directory(key)
+        # 获取当前的文本内
+        current_text = self.result_info.toPlainText()
+        
+        # 将新消息添加到最前面
+        if current_text:
+            new_text = formatted_message + '\n' + current_text
         else:
-                self.delete_file(key)
+            new_text = formatted_message
+        
+        # 更新文本显示
+        self.result_info.setText(new_text)
+        
+        # 将滚动条移动到顶部
+        self.result_info.verticalScrollBar().setValue(0)
 
-    def delete_file(self, key):
-        """删除文件"""
+    def get_public_url(self, object_key):
+        """生成永久公开访问链接"""
+        # 使用自定义域名
+        custom_domain = "r2.lss.lol"
+        
+        # 确保 object_key 开头没有斜杠
+        object_key = object_key.lstrip('/')
+        
+        # 直接返回完整 URL，不包含 bucket_name
+        return f"https://{custom_domain}/{object_key}"
+
+    def generate_presigned_url(self, object_key, expiration=3600):
+        """生成临时访问链接
+        object_key: 文件的键名
+        expiration: 链接有效期(秒)，默认1小时
+        """
         try:
-            self.s3_client.delete_object(Bucket=self.current_bucket_name, Key=key)
-            self.show_result(f"文件删除成功: {key}", False)
-            self.refresh_file_list()
+            url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.current_bucket_name,
+                    'Key': object_key
+                },
+                ExpiresIn=expiration
+            )
+            return url
         except Exception as e:
-            error_msg = f"删除文件失败: {str(e)}"
-            self.show_result(error_msg, True)
-            QMessageBox.warning(self, '删除失败', error_msg)
+            print(f"生成访问链接失败：{str(e)}")
+            return None
 
-    def delete_directory(self, key):
-        """删除目录"""
-        try:
-            # 获取目录下的所有对象
-            objects = self.s3_client.list_objects_v2(Bucket=self.current_bucket_name, Prefix=key)
-            
-            # 删除所有对象
-            for obj in objects.get('Contents', []):
-                self.s3_client.delete_object(Bucket=self.current_bucket_name, Key=obj['Key'])
-            
-            self.show_result(f"目录删除成功: {key}", False)
-            self.refresh_file_list()
-        except Exception as e:
-            error_msg = f"删除目录失败: {str(e)}"
-            self.show_result(error_msg, True)
-            QMessageBox.warning(self, '删除失败', error_msg)
-
-    def delete_selected_directory(self):
-        """删除选中的目录"""
+    def show_context_menu(self, position):
+        """显示右键菜单"""
         selected_items = self.file_list.selectedItems()
+        
+        menu = QMenu()
+        
+        # 添加刷新和新建文件夹菜单项，不管是否选中了文件
+        refresh_action = menu.addAction("刷新")
+        refresh_action.triggered.connect(lambda: self.refresh_file_list(self.current_path, True))
+        
+        create_folder_action = menu.addAction("新建文件夹")
+        create_folder_action.triggered.connect(self.create_new_folder)
+        
+        # 导出URL菜单项
+        export_urls_action = menu.addAction("导出所有文件URL")
+        export_urls_action.triggered.connect(self.export_custom_urls)
+        
+        # 如果没有选中项，只显示基本选项
         if not selected_items:
-            self.show_result('请选择要删除的目录', True)
+            menu.exec(self.file_list.viewport().mapToGlobal(position))
             return
             
-        for item in selected_items:
-            key = item.data(0, Qt.ItemDataRole.UserRole)
         # 添加分隔线
         menu.addSeparator()
         
@@ -1821,10 +2117,12 @@ R2_BUCKETS={
         item = self.file_list.currentItem()
         if item and item.text(1) != '目录':
             self.generate_public_share(item, use_custom_domain)
-
+            
     def delete_selected_items(self):
         """批量删除所选文件/文件夹"""
         selected_items = self.file_list.selectedItems()
+        if not selected_items:
+            return
             
         # 统计文件和目录的数量
         file_count = sum(1 for item in selected_items if item.text(1) != '目录')
@@ -1911,16 +2209,16 @@ R2_BUCKETS={
                 domain = self.current_bucket_config.get('custom_domain')
                 if domain:
                     if domain.startswith('http://') or domain.startswith('https://'):
-                    url = f"{domain}/{object_key}"
-            else:
-                url = f"https://{domain}/{object_key}"
+                        url = f"{domain}/{object_key}"
+                    else:
+                        url = f"https://{domain}/{object_key}"
                 else:
                     url = f"https://r2.lss.lol/{object_key}"  # 默认URL
             else:
                 domain = self.current_bucket_config.get('public_domain')
                 if domain:
                     if domain.startswith('http://') or domain.startswith('https://'):
-                    url = f"{domain}/{object_key}"
+                        url = f"{domain}/{object_key}"
                     else:
                         url = f"https://{domain}/{object_key}"
                 else:
@@ -1936,27 +2234,6 @@ R2_BUCKETS={
         clipboard.setText(all_urls)
         
         self.show_result(f"已复制 {len(urls)} 个{domain_type}访问链接到剪贴板", False)
-
-    def browse_file(self):
-        """选择文件"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "选择文件",
-            "",
-            "所有文件 (*.*)"
-        )
-        if file_path:
-            self.file_path_input.setText(file_path)
-            
-    def browse_folder(self):
-        """选择文件夹"""
-        folder_path = QFileDialog.getExistingDirectory(
-            self,
-            "选择文件夹",
-            ""
-        )
-        if folder_path:
-            self.file_path_input.setText(folder_path)
 
 # 添加一个新的 Worker 类来理后台计算
 class Worker(QObject):
