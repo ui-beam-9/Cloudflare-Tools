@@ -25,56 +25,38 @@
 
 ## 使用方法
 
-### 1. 环境配置
+### 1. 配置说明
 
-本项目提供了`.env.example`模板文件，您可以基于此文件创建自己的`.env`文件：
+本项目使用JSON配置文件存储凭证和设置，所有配置文件保存在脚本所在的同一目录中：
 
-```bash
-# 复制模板文件创建自己的环境配置
-cp .env.example .env
-# 然后编辑.env文件，填入您的实际配置
-```
+- `cloudflare_manager.json` - Cloudflare DNS管理器配置文件
+- `cloudflare_r2_manager.json` - Cloudflare R2存储管理器配置文件
 
-请根据模板文件中的说明填写相应的API凭证和配置项，确保填写正确，否则程序将无法正常工作。
-
-#### DNS管理器多域名配置
-
-DNS管理器支持同时管理多个域名。在`.env`文件中，使用`CLOUDFLARE_ZONES`配置多个域名：
-
-```json
-CLOUDFLARE_ZONES={"example.com": "区域ID1", "example.org": "区域ID2"}
-```
-
-#### R2存储管理器多存储桶配置
-DNS管理器支持同时管理多个域名。在`.env`文件中，使用`R2_BUCKETS`配置多个存储桶：
-
-```json
-R2_BUCKETS={"bucket1":{"bucket_name":"存储桶1的名称","custom_domain":"存储桶1的自定义域名（可选）","public_domain":"存储桶2的自定义域名（可选）"},"bucket2":{"bucket_name":"存储桶2的名称","custom_domain":"存储桶1的自定义域名（可选）","public_domain":"存储桶2的自定义域名（可选）"}}
-```
+配置文件会在首次运行程序时自动创建，您可以在程序界面中通过"设置凭证"按钮进行配置。
 
 ### 2. 安装依赖
 
 可以使用requirements.txt一次性安装所有依赖：
 
-```
+```bash
 pip install -r requirements.txt
 ```
 
 或者手动安装各个依赖：
 
-```
-pip install requests python-dotenv PyQt6 boto3 urllib3
+```bash
+pip install requests==2.32.3 PyQt6==6.8.1 boto3==1.37.17 urllib3==2.3.0 python-dotenv==1.0.1 cloudflare==4.1.0 jmespath==1.0.1 python-dateutil==2.9.0.post0
 ```
 
 ### 3. 运行程序
 
-DNS管理器:
-```
+Cloudflare DNS管理器:
+```bash
 python cloudflare_dns_manager.py
 ```
 
-R2存储管理器:
-```
+Cloudflare R2存储管理器:
+```bash
 python cloudflare_r2_manager.py
 ```
 
@@ -85,12 +67,26 @@ python cloudflare_r2_manager.py
 2. 创建API令牌: 转到用户个人资料 > API令牌 > 创建令牌
 3. 获取区域ID: 在域名概览页面的右侧信息卡片中可以找到
 
+您可以使用两种方式进行认证:
+- API Token（推荐）: 更安全的方式，可以设置有限的权限
+- Global API Key + Email: 全局API密钥方式，拥有完整账户权限
+
 ### Cloudflare R2凭证
 1. 登录Cloudflare控制面板
 2. 进入R2存储服务
 3. 创建或选择已有的存储桶
 4. 在"管理R2 API令牌"中创建新的令牌
 5. 记录下访问密钥ID和私有访问密钥
+6. 注意账户ID，这将用于构建端点URL
+
+## R2存储桶配置
+
+R2存储管理器支持配置多个存储桶，每个存储桶可以设置:
+
+- **存储桶标识**: 在程序中显示的名称
+- **存储桶名称**: 实际的R2存储桶名称
+- **自定义域名**: 用于通过自定义域名访问文件（如果已配置）
+- **R2.dev公共域名**: 公共访问域名（格式为 `pub-xxxxxxxx.r2.dev`）
 
 ## 自定义域设置
 
@@ -103,20 +99,17 @@ python cloudflare_r2_manager.py
 如果不使用自定义域，可以使用R2的公共域名访问文件，格式为：
 `https://pub-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.r2.dev/<file_path>`
 
-确保在环境变量中设置每个存储桶的`custom_domain`和`public_domain`以便应用程序能够正确生成文件URL。
-
 ## 文件说明
 
 - `cloudflare_dns_manager.py` - Cloudflare DNS管理工具，用于管理多个域名的DNS记录
 - `cloudflare_r2_manager.py` - Cloudflare R2存储管理工具，用于文件上传和管理
-- `.env.example` - 环境变量配置模板文件，包含所有需要的配置项
+- `cloudflare_manager.json` - Cloudflare DNS管理器配置文件（自动创建）
+- `cloudflare_r2_manager.json` - Cloudflare R2存储管理器配置文件（自动创建）
 - `requirements.txt` - 项目依赖列表
 
-## 截图
+## 安全说明
 
-![cloudflare_dns_manager_main](/img/cloudflare_dns_manager_main.png)
-
-![cloudflare_r2_manager_main](/img/cloudflare_r2_manager_main.png)
+所有凭证信息存储在程序所在目录下的配置文件中。如果在共享环境中使用本工具，请确保配置文件的安全性，避免未授权访问。
 
 ## 开发与贡献
 

@@ -1,7 +1,7 @@
 # 环境变量文件
 .env
 .env.*
-!.env.example
+.env.example
 
 # Python缓存文件
 __pycache__/
@@ -76,3 +76,13 @@ tmp/
 
 # R2上传临时缓存
 .r2_cache/ 
+
+# 配置文件
+cloudflare_manager.json
+dnspod_manager.json
+cloudflare_r2_manager.json
+
+#废弃代码
+cloudflare_dns_manager_env.py
+cloudflare_r2_manager_env.py
+dnspod_dns_manager.py

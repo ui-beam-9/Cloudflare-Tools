@@ -1,510 +1,603 @@
-import sys
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import os
 import json
 import requests
-from typing import Optional, Dict, Any
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                           QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
-                           QLabel, QLineEdit, QComboBox, QMessageBox, QDialog,
-                           QFormLayout, QCheckBox, QHeaderView, QStyledItemDelegate,
-                           QMenu)
-from PyQt6.QtGui import QAction
-from PyQt6.QtCore import Qt, QEvent, QPoint
-from dotenv import load_dotenv
-import os
+from datetime import datetime
+import threading
 
-class CloudflareDNS:
-    def __init__(self, api_token: str, zone_id: str):
-        """
-        初始化Cloudflare DNS管理器
+class CloudflareManager:
+    def __init__(self, email=None, api_key=None, token=None):
+        """初始化 Cloudflare 管理器"""
+        # 尝试从环境变量获取凭证
+        self.email = email or os.environ.get('CLOUDFLARE_EMAIL')
+        self.api_key = api_key or os.environ.get('CLOUDFLARE_API_KEY')
+        self.token = token or os.environ.get('CLOUDFLARE_TOKEN')
         
-        Args:
-            api_token (str): Cloudflare API令牌
-            zone_id (str): 域名区域ID
-        """
-        self.api_token = api_token
-        self.zone_id = zone_id
-        self.base_url = f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records"
-        self.headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
-        }
-
-    def list_records(self) -> Dict[str, Any]:
-        """获取所有DNS记录"""
-        response = requests.get(self.base_url, headers=self.headers)
-        return response.json()
-
-    def create_record(self, name: str, content: str, type: str, proxied: bool = True) -> Dict[str, Any]:
-        """
-        创建新的DNS记录
+        if not ((self.email and self.api_key) or self.token):
+            raise ValueError("必须提供 Cloudflare 凭证，可以是 email+api_key 或者 token")
+            
+        self.headers = {}
+        if self.token:
+            self.headers = {
+                'Authorization': f'Bearer {self.token}',
+                'Content-Type': 'application/json'
+            }
+        else:
+            self.headers = {
+                'X-Auth-Email': self.email,
+                'X-Auth-Key': self.api_key,
+                'Content-Type': 'application/json'
+            }
         
-        Args:
-            name (str): 记录名称
-            content (str): 记录内容
-            type (str): 记录类型 (A, AAAA, CNAME, MX, TXT, SRV, LOC, NS, SPF)
-            proxied (bool): 是否启用Cloudflare代理
-        """
+        self.api_url = "https://api.cloudflare.com/client/v4"
+    
+    def _make_request(self, method, endpoint, params=None, data=None):
+        """发送请求到 Cloudflare API"""
+        url = f"{self.api_url}/{endpoint}"
+        
+        response = None
+        if method.upper() == 'GET':
+            response = requests.get(url, headers=self.headers, params=params)
+        elif method.upper() == 'POST':
+            response = requests.post(url, headers=self.headers, json=data)
+        elif method.upper() == 'PUT':
+            response = requests.put(url, headers=self.headers, json=data)
+        elif method.upper() == 'DELETE':
+            response = requests.delete(url, headers=self.headers)
+        else:
+            raise ValueError(f"不支持的请求方法: {method}")
+        
+        # 解析结果
+        result = response.json()
+        
+        # 检查响应状态
+        if not result.get('success'):
+            error_messages = [error.get('message', 'Unknown error') for error in result.get('errors', [])]
+            raise Exception(f"API 错误: {'; '.join(error_messages)}")
+            
+        return result
+    
+    def list_zones(self):
+        """列出所有域名（zones）"""
+        result = self._make_request('GET', 'zones')
+        return result.get('result', [])
+    
+    def get_zone_info(self, zone_id):
+        """获取域名信息"""
+        result = self._make_request('GET', f'zones/{zone_id}')
+        return result.get('result', {})
+    
+    def list_dns_records(self, zone_id):
+        """列出域名下所有记录"""
+        result = self._make_request('GET', f'zones/{zone_id}/dns_records')
+        return result.get('result', [])
+    
+    def add_dns_record(self, zone_id, name, record_type, content, ttl=1, proxied=False):
+        """添加记录"""
         data = {
-            "name": name,
-            "content": content,
-            "type": type,
-            "proxied": proxied
+            'type': record_type,
+            'name': name,
+            'content': content,
+            'ttl': ttl,
+            'proxied': proxied
         }
-        response = requests.post(self.base_url, headers=self.headers, json=data)
-        return response.json()
-
-    def update_record(self, record_id: str, name: str, content: str, type: str, proxied: bool = True) -> Dict[str, Any]:
-        """
-        更新现有DNS记录
-        
-        Args:
-            record_id (str): 记录ID
-            name (str): 新的记录名称
-            content (str): 新的记录内容
-            type (str): 记录类型
-            proxied (bool): 是否启用Cloudflare代理
-        """
-        url = f"{self.base_url}/{record_id}"
+        result = self._make_request('POST', f'zones/{zone_id}/dns_records', data=data)
+        return result.get('result', {})
+    
+    def update_dns_record(self, zone_id, record_id, name, record_type, content, ttl=1, proxied=False):
+        """更新记录"""
         data = {
-            "name": name,
-            "content": content,
-            "type": type,
-            "proxied": proxied
+            'type': record_type,
+            'name': name,
+            'content': content,
+            'ttl': ttl,
+            'proxied': proxied
         }
-        response = requests.put(url, headers=self.headers, json=data)
-        return response.json()
-
-    def delete_record(self, record_id: str) -> Dict[str, Any]:
-        """
-        删除DNS记录
-        
-        Args:
-            record_id (str): 记录ID
-        """
-        url = f"{self.base_url}/{record_id}"
-        response = requests.delete(url, headers=self.headers)
-        return response.json()
-
-
-class DNSRecordDialog(QDialog):
-    def __init__(self, parent=None, record=None):
-        super().__init__(parent)
-        self.setWindowTitle("DNS 记录")
-        self.setModal(True)
-        
-        layout = QFormLayout()
-        
-        self.name = QLineEdit()
-        self.content = QLineEdit()
-        self.type = QComboBox()
-        self.type.addItems(['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'LOC', 'NS', 'SPF'])
-        self.proxied = QCheckBox()
-        self.proxied.setChecked(True)
-        
-        if record:
-            self.name.setText(record['name'])
-            self.content.setText(record['content'])
-            self.type.setCurrentText(record['type'])
-            self.proxied.setChecked(record['proxied'])
-        
-        layout.addRow("名称:", self.name)
-        layout.addRow("内容:", self.content)
-        layout.addRow("类型:", self.type)
-        layout.addRow("启用代理:", self.proxied)
-        
-        buttons = QHBoxLayout()
-        save_btn = QPushButton("保存")
-        cancel_btn = QPushButton("取消")
-        
-        save_btn.clicked.connect(self.accept)
-        cancel_btn.clicked.connect(self.reject)
-        
-        buttons.addWidget(save_btn)
-        buttons.addWidget(cancel_btn)
-        layout.addRow(buttons)
-        
-        self.setLayout(layout)
-
-
-class TypeDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.dns_types = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'LOC', 'NS', 'SPF']
+        result = self._make_request('PUT', f'zones/{zone_id}/dns_records/{record_id}', data=data)
+        return result.get('result', {})
     
-    def createEditor(self, parent, option, index):
-        editor = QComboBox(parent)
-        editor.addItems(self.dns_types)
-        return editor
+    def delete_dns_record(self, zone_id, record_id):
+        """删除记录"""
+        result = self._make_request('DELETE', f'zones/{zone_id}/dns_records/{record_id}')
+        return result.get('result', {})
     
-    def setEditorData(self, editor, index):
-        value = index.model().data(index, Qt.ItemDataRole.DisplayRole)
-        editor.setCurrentText(value)
-    
-    def setModelData(self, editor, model, index):
-        model.setData(index, editor.currentText(), Qt.ItemDataRole.EditRole)
+    def get_dns_record_info(self, zone_id, record_id):
+        """获取记录信息"""
+        result = self._make_request('GET', f'zones/{zone_id}/dns_records/{record_id}')
+        return result.get('result', {})
 
 
-class ProxiedDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-    
-    def createEditor(self, parent, option, index):
-        editor = QComboBox(parent)
-        editor.addItems(['True', 'False'])
-        return editor
-    
-    def setEditorData(self, editor, index):
-        value = index.model().data(index, Qt.ItemDataRole.DisplayRole)
-        editor.setCurrentText(value)
-    
-    def setModelData(self, editor, model, index):
-        model.setData(index, editor.currentText(), Qt.ItemDataRole.EditRole)
-
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Cloudflare DNS Manager")
-        self.setMinimumSize(800, 600)
+class CloudflareDNSManagerGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Cloudflare DNS 管理器")
+        self.root.geometry("900x600")
+        self.root.resizable(True, True)
         
-        # 加载配置
-        load_dotenv()
-        self.api_token = os.getenv('CLOUDFLARE_API_TOKEN')
-        
-        # 初始化域名数据
-        self.zones = {}
-        self.current_domain = None
+        # 初始化变量
+        self.current_zone = None
         self.current_zone_id = None
-        self.load_zones()
+        self.records = []
+        self.cloudflare = None
+        self.zones = []
         
-        # 创建主窗口部件
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        # 创建界面
+        self.create_widgets()
         
-        # 创建域名选择区域
-        domain_layout = QHBoxLayout()
-        domain_label = QLabel("选择域名:")
-        self.domain_selector = QComboBox()
-        self.domain_selector.setMinimumWidth(200)
+        # 尝试加载配置
+        self.load_config()
         
-        # 填充域名选择器
-        for domain in self.zones.keys():
-            self.domain_selector.addItem(domain)
+        # 尝试连接
+        if self.config.get('cloudflare_token'):
+            self.connect_to_cloudflare(token=self.config['cloudflare_token'])
+        elif self.config.get('cloudflare_email') and self.config.get('cloudflare_api_key'):
+            self.connect_to_cloudflare(
+                email=self.config['cloudflare_email'],
+                api_key=self.config['cloudflare_api_key']
+            )
+        else:
+            self.show_login_dialog()
+    
+    def create_widgets(self):
+        # 创建工具栏框架
+        self.toolbar_frame = ttk.Frame(self.root, padding=5)
+        self.toolbar_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        # 连接域名选择变化事件
-        self.domain_selector.currentTextChanged.connect(self.on_domain_changed)
+        # 域名选择下拉框
+        ttk.Label(self.toolbar_frame, text="域名:").pack(side=tk.LEFT, padx=(0, 5))
+        self.zone_var = tk.StringVar()
+        self.zone_combobox = ttk.Combobox(self.toolbar_frame, textvariable=self.zone_var, state="readonly", width=30)
+        self.zone_combobox.pack(side=tk.LEFT, padx=(0, 10))
+        self.zone_combobox.bind("<<ComboboxSelected>>", self.on_zone_selected)
         
-        domain_layout.addWidget(domain_label)
-        domain_layout.addWidget(self.domain_selector)
-        domain_layout.addStretch()
+        # 刷新按钮
+        self.refresh_button = ttk.Button(self.toolbar_frame, text="刷新", command=self.refresh_records)
+        self.refresh_button.pack(side=tk.LEFT, padx=5)
         
-        layout.addLayout(domain_layout)
+        # 添加记录按钮
+        self.add_record_button = ttk.Button(self.toolbar_frame, text="添加记录", command=self.show_add_record_dialog)
+        self.add_record_button.pack(side=tk.LEFT, padx=5)
+        
+        # 设置凭证按钮
+        self.settings_button = ttk.Button(self.toolbar_frame, text="设置凭证", command=self.show_login_dialog)
+        self.settings_button.pack(side=tk.LEFT, padx=5)
+        
+        # 状态栏
+        self.status_var = tk.StringVar()
+        self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
         # 创建表格
-        self.table = QTableWidget()
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "名称", "内容", "类型", "代理"])
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.create_records_table()
         
-        # 设置表格列宽自适应
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)  # ID列可手动调整
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # 名称列可手动调整
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)      # 内容列自动拉伸
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)        # 类型列固定宽度
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)        # 代理列固定宽度
+        # 设置状态
+        self.status_var.set("准备就绪")
+    
+    def create_records_table(self):
+        # 表格框架
+        self.table_frame = ttk.Frame(self.root)
+        self.table_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # 设置初始列宽
-        self.table.setColumnWidth(0, 200)  # ID列
-        self.table.setColumnWidth(1, 150)  # 名称列
-        # 内容列宽度由Stretch模式自动计算
-        self.table.setColumnWidth(3, 60)   # 类型列
-        self.table.setColumnWidth(4, 50)   # 代理列
+        # 创建表格
+        columns = ("名称", "类型", "内容", "TTL", "代理", "ID")
+        self.records_table = ttk.Treeview(self.table_frame, columns=columns, show="headings")
         
-        # 让内容列也适当拉伸
-        self.table.horizontalHeader().setStretchLastSection(False)
+        # 设置列标题
+        for col in columns:
+            self.records_table.heading(col, text=col)
+            if col == "内容":
+                self.records_table.column(col, width=200, anchor=tk.W)
+            elif col == "ID":
+                self.records_table.column(col, width=60, anchor=tk.CENTER)
+            elif col == "代理":
+                self.records_table.column(col, width=60, anchor=tk.CENTER)
+            else:
+                self.records_table.column(col, width=100, anchor=tk.CENTER)
         
-        # 设置类型列和代理列的委托
-        self.table.setItemDelegateForColumn(3, TypeDelegate(self.table))
-        self.table.setItemDelegateForColumn(4, ProxiedDelegate(self.table))
+        # 添加滚动条
+        table_scroll_y = ttk.Scrollbar(self.table_frame, orient=tk.VERTICAL, command=self.records_table.yview)
+        self.records_table.configure(yscrollcommand=table_scroll_y.set)
         
-        # 禁用编辑，改为只读模式
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        # 放置表格和滚动条
+        self.records_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        table_scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # 设置上下文菜单策略
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.show_context_menu)
+        # 绑定双击事件
+        self.records_table.bind("<Double-1>", self.on_record_double_click)
         
-        layout.addWidget(self.table)
+        # 绑定右键菜单
+        self.create_context_menu()
+        self.records_table.bind("<Button-3>", self.show_context_menu)
+    
+    def create_context_menu(self):
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="编辑记录", command=self.edit_selected_record)
+        self.context_menu.add_command(label="删除记录", command=self.delete_selected_record)
+    
+    def show_context_menu(self, event):
+        try:
+            selected_item = self.records_table.selection()[0]
+            self.context_menu.post(event.x_root, event.y_root)
+        except IndexError:
+            pass  # 没有选中项
+    
+    def show_login_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Cloudflare 凭证设置")
+        dialog.geometry("400x250")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
         
-        # 状态栏显示当前域名
-        self.statusBar().showMessage("就绪")
+        # 创建选项卡
+        notebook = ttk.Notebook(dialog)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # 初始化DNS管理器
-        self.dns_manager = None
+        # API Token 选项卡
+        token_frame = ttk.Frame(notebook, padding=10)
+        notebook.add(token_frame, text="API Token")
         
-        # 如果有域名，选择第一个
-        if self.domain_selector.count() > 0:
-            self.current_domain = self.domain_selector.currentText()
-            self.current_zone_id = self.zones.get(self.current_domain)
-            self.init_dns_manager()
-            self.refresh_records()
-        else:
-            QMessageBox.warning(self, "错误", "未找到域名配置，请在.env文件中配置CLOUDFLARE_ZONES")
+        ttk.Label(token_frame, text="API Token:").grid(row=0, column=0, sticky=tk.W, pady=10)
+        token_entry = ttk.Entry(token_frame, width=40, show="*")
+        token_entry.grid(row=0, column=1, pady=10)
+        
+        if self.config.get('cloudflare_token'):
+            token_entry.insert(0, self.config['cloudflare_token'])
+        
+        # Global API Key 选项卡
+        key_frame = ttk.Frame(notebook, padding=10)
+        notebook.add(key_frame, text="Global API Key")
+        
+        ttk.Label(key_frame, text="Email:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        email_entry = ttk.Entry(key_frame, width=40)
+        email_entry.grid(row=0, column=1, pady=5)
+        
+        ttk.Label(key_frame, text="API Key:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        api_key_entry = ttk.Entry(key_frame, width=40, show="*")
+        api_key_entry.grid(row=1, column=1, pady=5)
+        
+        if self.config.get('cloudflare_email'):
+            email_entry.insert(0, self.config['cloudflare_email'])
+        if self.config.get('cloudflare_api_key'):
+            api_key_entry.insert(0, self.config['cloudflare_api_key'])
+        
+        # 按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        def on_login():
+            current_tab = notebook.index(notebook.select())
+            
+            try:
+                if current_tab == 0:  # API Token
+                    token = token_entry.get().strip()
+                    if not token:
+                        messagebox.showerror("错误", "API Token 不能为空", parent=dialog)
+                        return
+                    
+                    self.connect_to_cloudflare(token=token)
+                    self.config['cloudflare_token'] = token
+                    self.config.pop('cloudflare_email', None)
+                    self.config.pop('cloudflare_api_key', None)
+                    
+                else:  # Global API Key
+                    email = email_entry.get().strip()
+                    api_key = api_key_entry.get().strip()
+                    
+                    if not email or not api_key:
+                        messagebox.showerror("错误", "Email 和 API Key 不能为空", parent=dialog)
+                        return
+                    
+                    self.connect_to_cloudflare(email=email, api_key=api_key)
+                    self.config['cloudflare_email'] = email
+                    self.config['cloudflare_api_key'] = api_key
+                    self.config.pop('cloudflare_token', None)
+                
+                self.save_config()
+                dialog.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("连接错误", f"无法连接到 Cloudflare: {str(e)}", parent=dialog)
+        
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(button_frame, text="连接", command=on_login).pack(side=tk.RIGHT, padx=5)
+    
+    def connect_to_cloudflare(self, email=None, api_key=None, token=None):
+        try:
+            self.status_var.set("正在连接到 Cloudflare...")
+            self.cloudflare = CloudflareManager(email, api_key, token)
+            self.load_zones()
+            self.status_var.set("已连接到 Cloudflare")
+        except Exception as e:
+            self.status_var.set(f"连接失败: {str(e)}")
+            raise
     
     def load_zones(self):
-        """加载域名配置"""
-        try:
-            print("\n=== DNS 管理器配置诊断信息 ===")
-            
-            # 获取脚本所在目录的绝对路径
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            print(f"脚本目录: {script_dir}")
-            print(f"当前工作目录: {os.getcwd()}")
-            
-            # 检查.env文件是否存在
-            env_path = os.path.join(script_dir, '.env')
-            env_exists = os.path.exists(env_path)
-            print(f".env 文件是否存在: {env_exists}")
-            print(f".env 文件路径: {env_path}")
-            
-            if not env_exists:
-                print("错误: 未找到 .env 文件")
-                QMessageBox.warning(self, '配置错误', '未找到 .env 文件！')
-                return
-                
-            # 加载.env文件
-            print("\n正在加载 .env 文件...")
-            load_dotenv(env_path)
-            
-            # 检查 API 令牌
-            print("\n检查 API 令牌配置:")
-            self.api_token = os.getenv('CLOUDFLARE_API_TOKEN')
-            print(f"CLOUDFLARE_API_TOKEN: {'已设置' if self.api_token else '未设置'}")
-            
-            if not self.api_token:
-                print("错误: 未设置 Cloudflare API 令牌")
-                QMessageBox.warning(self, '配置错误', '请在 .env 文件中设置 CLOUDFLARE_API_TOKEN！')
-                return
-                
-            # 检查域名配置
-            print("\n检查域名配置:")
-            zones_str = os.getenv('CLOUDFLARE_ZONES')
-            print(f"CLOUDFLARE_ZONES: {'已设置' if zones_str else '未设置'}")
-            
-            if not zones_str:
-                print("错误: 未设置域名配置")
-                QMessageBox.warning(self, '配置错误', '请在 .env 文件中设置 CLOUDFLARE_ZONES！')
-                return
-                
+        if not self.cloudflare:
+            return
+        
+        def background_task():
             try:
-                print("\n正在解析域名配置...")
-                self.zones = json.loads(zones_str)
-                print(f"已配置的域名数量: {len(self.zones)}")
+                zones = self.cloudflare.list_zones()
                 
-                if not self.zones:
-                    print("错误: 域名配置为空")
-                    QMessageBox.warning(self, '配置错误', '域名配置为空，请至少配置一个域名！')
-                    return
-                    
-                print("\n域名配置详情:")
-                for domain, zone_id in self.zones.items():
-                    print(f"  域名: {domain}")
-                    print(f"  区域ID: {zone_id}")
-                    
-            except json.JSONDecodeError as e:
-                error_msg = f"域名配置 JSON 解析失败: {str(e)}"
-                print(f"错误: {error_msg}")
-                QMessageBox.warning(self, '配置错误', error_msg)
-                return
+                # 在主线程中更新 UI
+                self.root.after(0, lambda: self._update_zones_ui(zones))
                 
-            print("\n=== 诊断信息结束 ===")
-            
-        except Exception as e:
-            error_msg = f"加载域名配置失败: {str(e)}"
-            print(f"错误: {error_msg}")
-            QMessageBox.warning(self, '配置错误', error_msg)
+            except Exception as e:
+                self.root.after(0, lambda: self.status_var.set(f"加载域名失败: {str(e)}"))
+        
+        self.status_var.set("正在加载域名列表...")
+        threading.Thread(target=background_task).start()
     
-    def on_domain_changed(self, domain):
-        """处理域名选择变化"""
-        if domain and domain in self.zones:
-            self.current_domain = domain
-            self.current_zone_id = self.zones.get(domain)
-            self.init_dns_manager()
+    def _update_zones_ui(self, zones):
+        self.zones = zones
+        zone_names = [zone['name'] for zone in zones]
+        self.zone_combobox['values'] = zone_names
+        
+        if zone_names:
+            self.zone_combobox.current(0)
+            self.current_zone = zone_names[0]
+            self.current_zone_id = zones[0]['id']
             self.refresh_records()
-            self.statusBar().showMessage(f"当前域名: {domain}")
+        
+        self.status_var.set(f"已加载 {len(zone_names)} 个域名")
     
-    def init_dns_manager(self):
-        if self.api_token and self.current_zone_id:
-            self.dns_manager = CloudflareDNS(self.api_token, self.current_zone_id)
-            return True
-        else:
-            QMessageBox.warning(self, "错误", "请在.env文件中配置CLOUDFLARE_API_TOKEN和CLOUDFLARE_ZONES")
-            return False
-    
-    def show_context_menu(self, pos: QPoint):
-        menu = QMenu(self)
-        
-        add_action = QAction("添加记录", self)
-        refresh_action = QAction("刷新", self)
-        
-        menu.addAction(add_action)
-        menu.addAction(refresh_action)
-        
-        # 如果有选中的行，添加编辑和删除选项
-        current_row = self.table.currentRow()
-        if current_row >= 0:
-            edit_action = QAction("编辑记录", self)
-            delete_action = QAction("删除记录", self)
-            menu.addSeparator()
-            menu.addAction(edit_action)
-            menu.addAction(delete_action)
-            
-            edit_action.triggered.connect(self.edit_record)
-            delete_action.triggered.connect(self.delete_record)
-        
-        add_action.triggered.connect(self.add_record)
-        refresh_action.triggered.connect(self.refresh_records)
-        
-        # 在鼠标位置显示菜单
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+    def on_zone_selected(self, event):
+        index = self.zone_combobox.current()
+        if index >= 0 and index < len(self.zones):
+            self.current_zone = self.zones[index]['name']
+            self.current_zone_id = self.zones[index]['id']
+            self.refresh_records()
     
     def refresh_records(self):
-        if not self.dns_manager:
-            if not self.init_dns_manager():
+        if not self.cloudflare or not self.current_zone_id:
+            return
+        
+        def background_task():
+            try:
+                self.root.after(0, lambda: self.status_var.set(f"正在加载 {self.current_zone} 的记录..."))
+                records = self.cloudflare.list_dns_records(self.current_zone_id)
+                
+                # 在主线程中更新 UI
+                self.root.after(0, lambda: self._update_records_ui(records))
+                
+            except Exception as e:
+                self.root.after(0, lambda: self.status_var.set(f"加载记录失败: {str(e)}"))
+        
+        threading.Thread(target=background_task).start()
+    
+    def _update_records_ui(self, records):
+        # 清空表格
+        for item in self.records_table.get_children():
+            self.records_table.delete(item)
+        
+        # 添加记录到表格
+        for record in records:
+            ttl_value = "自动" if record.get('ttl') == 1 else record.get('ttl')
+            proxied_value = "是" if record.get('proxied') else "否"
+            
+            self.records_table.insert("", tk.END, values=(
+                record.get('name'),
+                record.get('type'),
+                record.get('content'),
+                ttl_value,
+                proxied_value,
+                record.get('id')
+            ))
+        
+        self.records = records
+        self.status_var.set(f"已加载 {len(records)} 条记录")
+    
+    def on_record_double_click(self, event):
+        self.edit_selected_record()
+    
+    def edit_selected_record(self):
+        try:
+            selected_item = self.records_table.selection()[0]
+            values = self.records_table.item(selected_item, "values")
+            
+            record_id = values[5]
+            record_data = None
+            
+            # 查找匹配的记录数据
+            for record in self.records:
+                if record['id'] == record_id:
+                    record_data = record
+                    break
+            
+            if record_data:
+                self.show_edit_record_dialog(record_data)
+            
+        except IndexError:
+            messagebox.showinfo("提示", "请先选择一条记录")
+    
+    def delete_selected_record(self):
+        try:
+            selected_item = self.records_table.selection()[0]
+            values = self.records_table.item(selected_item, "values")
+            
+            name = values[0]
+            record_id = values[5]
+            
+            if messagebox.askyesno("确认删除", f"确定要删除记录 {name} 吗?"):
+                try:
+                    self.cloudflare.delete_dns_record(self.current_zone_id, record_id)
+                    self.refresh_records()
+                    messagebox.showinfo("成功", "记录已删除")
+                except Exception as e:
+                    messagebox.showerror("错误", f"删除记录失败: {str(e)}")
+            
+        except IndexError:
+            messagebox.showinfo("提示", "请先选择一条记录")
+    
+    def show_add_record_dialog(self):
+        self.show_record_dialog()
+    
+    def show_edit_record_dialog(self, record_data):
+        self.show_record_dialog(record_data)
+    
+    def show_record_dialog(self, record_data=None):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("编辑记录" if record_data else "添加记录")
+        dialog.geometry("420x350")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 域名部分填充
+        current_zone = self.current_zone
+        
+        ttk.Label(dialog, text=f"域名: {current_zone}").grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=10, pady=10)
+        
+        # 创建表单
+        ttk.Label(dialog, text="名称:").grid(row=1, column=0, sticky=tk.W, padx=10, pady=10)
+        name_entry = ttk.Entry(dialog, width=30)
+        name_entry.grid(row=1, column=1, padx=10, pady=10)
+        
+        ttk.Label(dialog, text="记录类型:").grid(row=2, column=0, sticky=tk.W, padx=10, pady=10)
+        type_var = tk.StringVar()
+        type_combobox = ttk.Combobox(dialog, textvariable=type_var, width=15, state="readonly")
+        type_combobox['values'] = ("A", "AAAA", "CNAME", "MX", "TXT", "NS", "SRV", "CAA")
+        type_combobox.grid(row=2, column=1, sticky=tk.W, padx=10, pady=10)
+        type_combobox.current(0)
+        
+        ttk.Label(dialog, text="内容:").grid(row=3, column=0, sticky=tk.W, padx=10, pady=10)
+        content_entry = ttk.Entry(dialog, width=30)
+        content_entry.grid(row=3, column=1, padx=10, pady=10)
+        
+        ttk.Label(dialog, text="TTL:").grid(row=4, column=0, sticky=tk.W, padx=10, pady=10)
+        ttl_var = tk.StringVar(value="自动")
+        ttl_combobox = ttk.Combobox(dialog, textvariable=ttl_var, width=15)
+        ttl_combobox['values'] = ("自动", "60", "120", "300", "600", "1800", "3600", "7200", "86400")
+        ttl_combobox.grid(row=4, column=1, sticky=tk.W, padx=10, pady=10)
+        
+        ttk.Label(dialog, text="代理:").grid(row=5, column=0, sticky=tk.W, padx=10, pady=10)
+        proxied_var = tk.BooleanVar(value=False)
+        proxied_check = ttk.Checkbutton(dialog, variable=proxied_var)
+        proxied_check.grid(row=5, column=1, sticky=tk.W, padx=10, pady=10)
+        
+        # 如果是编辑操作，填充现有数据
+        if record_data:
+            name = record_data['name']
+            # 移除域名后缀以获取子域名部分
+            if name.endswith(f".{current_zone}"):
+                name = name[:-len(f".{current_zone}") - 1]
+            elif name == current_zone:
+                name = "@"
+            
+            name_entry.insert(0, name)
+            type_var.set(record_data['type'])
+            content_entry.insert(0, record_data['content'])
+            
+            if record_data['ttl'] == 1:
+                ttl_var.set("自动")
+            else:
+                ttl_var.set(str(record_data['ttl']))
+                
+            proxied_var.set(record_data['proxied'])
+        
+        def on_submit():
+            name = name_entry.get().strip()
+            record_type = type_var.get()
+            content = content_entry.get().strip()
+            ttl_text = ttl_var.get()
+            proxied = proxied_var.get()
+            
+            if not name or not content:
+                messagebox.showerror("错误", "名称和内容不能为空", parent=dialog)
                 return
+            
+            # 转换名称格式
+            full_name = name
+            if name == "@":
+                full_name = current_zone
+            elif not name.endswith(f".{current_zone}") and name != current_zone:
+                full_name = f"{name}.{current_zone}"
+            
+            # 转换 TTL 值
+            if ttl_text == "自动":
+                ttl = 1
+            else:
+                try:
+                    ttl = int(ttl_text)
+                except ValueError:
+                    messagebox.showerror("错误", "TTL 必须是一个整数", parent=dialog)
+                    return
+            
+            # 部分记录类型不能使用代理
+            if proxied and record_type in ("MX", "TXT", "NS", "SRV", "CAA"):
+                messagebox.showerror("错误", f"{record_type} 类型的记录不能启用代理", parent=dialog)
+                return
+            
+            try:
+                if record_data:  # 编辑记录
+                    self.cloudflare.update_dns_record(
+                        self.current_zone_id,
+                        record_data['id'],
+                        full_name,
+                        record_type,
+                        content,
+                        ttl,
+                        proxied
+                    )
+                    messagebox.showinfo("成功", "记录已更新", parent=dialog)
+                else:  # 添加记录
+                    self.cloudflare.add_dns_record(
+                        self.current_zone_id,
+                        full_name,
+                        record_type,
+                        content,
+                        ttl,
+                        proxied
+                    )
+                    messagebox.showinfo("成功", "记录已添加", parent=dialog)
+                
+                dialog.destroy()
+                self.refresh_records()
+                
+            except Exception as e:
+                messagebox.showerror("错误", f"操作失败: {str(e)}", parent=dialog)
+        
+        # 添加按钮
+        button_frame = ttk.Frame(dialog)
+        button_frame.grid(row=6, column=0, columnspan=2, pady=15)
+        
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="保存", command=on_submit).pack(side=tk.LEFT, padx=10)
+    
+    def load_config(self):
+        self.config = {}
+        # 获取脚本所在目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_file = os.path.join(script_dir, "cloudflare_manager.json")
+        
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r') as f:
+                    self.config = json.load(f)
+            except Exception:
+                pass
+    
+    def save_config(self):
+        # 获取脚本所在目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_file = os.path.join(script_dir, "cloudflare_manager.json")
         
         try:
-            self.table.setRowCount(0)  # 清空表格
-            
-            # 设置窗口标题，包含当前域名
-            if self.current_domain:
-                self.setWindowTitle(f"Cloudflare DNS Manager - {self.current_domain}")
-            
-            response = self.dns_manager.list_records()
-            if response.get('success', False):
-                records = response['result']
-                self.table.setRowCount(len(records))
-                
-                for i, record in enumerate(records):
-                    id_item = QTableWidgetItem(record['id'])
-                    self.table.setItem(i, 0, id_item)
-                    self.table.setItem(i, 1, QTableWidgetItem(record['name']))
-                    self.table.setItem(i, 2, QTableWidgetItem(record['content']))
-                    self.table.setItem(i, 3, QTableWidgetItem(record['type']))
-                    self.table.setItem(i, 4, QTableWidgetItem(str(record['proxied'])))
-            else:
-                error_msg = "未知错误"
-                if 'errors' in response and len(response['errors']) > 0:
-                    error_msg = response['errors'][0].get('message', '未知错误')
-                QMessageBox.warning(self, "错误", f"获取记录失败: {error_msg}")
+            with open(config_file, 'w') as f:
+                json.dump(self.config, f)
         except Exception as e:
-            QMessageBox.warning(self, "错误", f"发生错误: {str(e)}")
-    
-    def add_record(self):
-        if not self.dns_manager:
-            if not self.init_dns_manager():
-                return
-        
-        dialog = DNSRecordDialog(self)
-        if dialog.exec():
-            try:
-                response = self.dns_manager.create_record(
-                    name=dialog.name.text(),
-                    content=dialog.content.text(),
-                    type=dialog.type.currentText(),
-                    proxied=dialog.proxied.isChecked()
-                )
-                
-                if response['success']:
-                    QMessageBox.information(self, "成功", "记录创建成功")
-                    self.refresh_records()
-                else:
-                    QMessageBox.warning(self, "错误", f"创建记录失败: {response['errors'][0]['message']}")
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"发生错误: {str(e)}")
-    
-    def edit_record(self):
-        if not self.dns_manager:
-            if not self.init_dns_manager():
-                return
-        
-        current_row = self.table.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "错误", "请先选择要编辑的记录")
-            return
-        
-        record = {
-            'id': self.table.item(current_row, 0).text(),
-            'name': self.table.item(current_row, 1).text(),
-            'content': self.table.item(current_row, 2).text(),
-            'type': self.table.item(current_row, 3).text(),
-            'proxied': self.table.item(current_row, 4).text().lower() == 'true'
-        }
-        
-        dialog = DNSRecordDialog(self, record)
-        if dialog.exec():
-            try:
-                response = self.dns_manager.update_record(
-                    record_id=record['id'],
-                    name=dialog.name.text(),
-                    content=dialog.content.text(),
-                    type=dialog.type.currentText(),
-                    proxied=dialog.proxied.isChecked()
-                )
-                
-                if response['success']:
-                    QMessageBox.information(self, "成功", "记录更新成功")
-                    self.refresh_records()
-                else:
-                    QMessageBox.warning(self, "错误", f"更新记录失败: {response['errors'][0]['message']}")
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"发生错误: {str(e)}")
-    
-    def delete_record(self):
-        if not self.dns_manager:
-            if not self.init_dns_manager():
-                return
-        
-        current_row = self.table.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, "错误", "请先选择要删除的记录")
-            return
-        
-        record_id = self.table.item(current_row, 0).text()
-        reply = QMessageBox.question(
-            self, "确认删除",
-            "确定要删除这条记录吗？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                response = self.dns_manager.delete_record(record_id)
-                
-                if response.get('success', False):
-                    QMessageBox.information(self, "成功", "记录删除成功")
-                    self.refresh_records()
-                else:
-                    error_msg = "未知错误"
-                    if 'errors' in response and len(response['errors']) > 0:
-                        error_msg = response['errors'][0].get('message', '未知错误')
-                    QMessageBox.warning(self, "错误", f"删除记录失败: {error_msg}")
-                    # 刷新以恢复原始数据
-                    self.refresh_records()
-            except Exception as e:
-                QMessageBox.warning(self, "错误", f"发生错误: {str(e)}")
-                # 刷新以恢复原始数据
-                self.refresh_records()
+            messagebox.showerror("错误", f"保存配置失败: {str(e)}")
 
 
 def main():
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    root = tk.Tk()
+    app = CloudflareDNSManagerGUI(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":

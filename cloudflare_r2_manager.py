@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt, QDateTime, QThread, pyqtSignal, QSize, QObject
 from PyQt6.QtGui import QKeySequence, QShortcut, QIcon, QPixmap, QImage
 import boto3
 from botocore.config import Config
-from dotenv import load_dotenv
+import json
 from PyQt6.QtGui import QClipboard
 import csv
 import time
@@ -322,6 +322,14 @@ class R2UploaderGUI(QMainWindow):
         self.bucket_combo.currentIndexChanged.connect(self.switch_bucket)
         bucket_layout.addWidget(bucket_label)
         bucket_layout.addWidget(self.bucket_combo)
+        
+        # 添加设置按钮
+        settings_btn = QPushButton("设置凭证")
+        settings_btn.setToolTip('设置凭证')
+        settings_btn.clicked.connect(self.show_config_dialog)
+        settings_btn.setFixedHeight(30)
+        bucket_layout.addWidget(settings_btn)
+        
         bucket_layout.addStretch()
         right_layout.addLayout(bucket_layout)
 
@@ -403,130 +411,26 @@ class R2UploaderGUI(QMainWindow):
     def init_r2_client(self):
         """初始化R2客户端"""
         try:
-            # 获取脚本所在目录的绝对路径
-            script_dir = os.path.dirname(os.path.abspath(__file__))
+            # 初始化配置
+            self.config = {}
             
-            # 添加诊断信息
-            print("\n=== R2 配置诊断信息 ===")
-            print(f"脚本目录: {script_dir}")
-            print(f"当前工作目录: {os.getcwd()}")
+            # 尝试加载配置
+            self.load_config()
             
-            # 切换到脚本所在目录
-            os.chdir(script_dir)
-            print(f"切换后的工作目录: {os.getcwd()}")
-            
-            # 检查.env文件是否存在
-            env_path = os.path.join(script_dir, '.env')
-            env_exists = os.path.exists(env_path)
-            print(f".env 文件是否存在: {env_exists}")
-            print(f".env 文件路径: {env_path}")
-            
-            if not env_exists:
-                print("正在创建 .env 模板文件...")
-                # 如果.env文件不存在，创建一个模板
-                template = '''# Cloudflare R2 通用凭证配置
-R2_ACCOUNT_ID="你的Cloudflare账户ID"
-R2_ACCESS_KEY_ID="你的R2访问密钥ID"
-R2_ACCESS_KEY_SECRET="你的R2访问密钥密文"
-R2_ENDPOINT_URL="https://你的账户ID.r2.cloudflarestorage.com"
-
-# R2 存储桶配置
-R2_BUCKETS={
-    "bucket1": {
-        "bucket_name": "存储桶1的名称",
-        "custom_domain": "存储桶1的自定义域名",
-        "public_domain": "存储桶1的R2公共域名"
-    },
-    "bucket2": {
-        "bucket_name": "存储桶2的名称",
-        "custom_domain": "存储桶2的自定义域名",
-        "public_domain": "存储桶2的R2公共域名"
-    }
-}'''
-                
-                with open(env_path, 'w', encoding='utf-8') as f:
-                    f.write(template)
-                print("已创建 .env 模板文件")
-                error_msg = f"已在 {env_path} 创建配置文件模板。\n请编辑该文件，填入您的实际配置信息，然后重启程序。"
-                self.show_result(error_msg, True)
-                QMessageBox.information(self, '配置文件创建成功', error_msg)
-                return False
-                
-            # 加载.env文件
-            print("\n正在加载 .env 文件...")
-            load_dotenv(env_path)
-            
-            # 获取并检查必需的凭证
-            print("\n检查 R2 凭证配置:")
-            account_id = os.getenv('R2_ACCOUNT_ID')
-            access_key_id = os.getenv('R2_ACCESS_KEY_ID')
-            access_key_secret = os.getenv('R2_ACCESS_KEY_SECRET')
-            endpoint_url = os.getenv('R2_ENDPOINT_URL')
-            
-            print(f"R2_ACCOUNT_ID: {'已设置' if account_id else '未设置'}")
-            print(f"R2_ACCESS_KEY_ID: {'已设置' if access_key_id else '未设置'}")
-            print(f"R2_ACCESS_KEY_SECRET: {'已设置' if access_key_secret else '未设置'}")
-            print(f"R2_ENDPOINT_URL: {'已设置' if endpoint_url else '未设置'}")
-            
-            # 检查缺失的配置项
-            missing_configs = []
-            if not account_id: missing_configs.append('R2_ACCOUNT_ID')
-            if not access_key_id: missing_configs.append('R2_ACCESS_KEY_ID')
-            if not access_key_secret: missing_configs.append('R2_ACCESS_KEY_SECRET')
-            if not endpoint_url: missing_configs.append('R2_ENDPOINT_URL')
-            
-            if missing_configs:
-                error_msg = f"缺少以下必需的R2凭证配置：\n{', '.join(missing_configs)}\n\n请检查 {env_path} 文件中的配置。"
-                print(f"\n错误: {error_msg}")
-                self.show_result(error_msg, True)
-                QMessageBox.warning(self, '配置错误', error_msg)
-                return False
-                
-            # 获取存储桶配置
-            print("\n检查存储桶配置:")
-            buckets_str = os.getenv('R2_BUCKETS')
-            if not buckets_str:
-                error_msg = f"缺少存储桶配置(R2_BUCKETS)，请检查 {env_path} 文件。"
-                print(f"\n错误: {error_msg}")
-                self.show_result(error_msg, True)
-                QMessageBox.warning(self, '配置错误', error_msg)
-                return False
-                
-            try:
-                print("正在解析 R2_BUCKETS JSON 配置...")
-                self.buckets = json.loads(buckets_str)
-                print(f"已配置的存储桶数量: {len(self.buckets)}")
-            except json.JSONDecodeError as e:
-                error_msg = f"R2_BUCKETS 配置格式错误：{str(e)}\n请检查 JSON 格式是否正确。"
-                print(f"\n错误: {error_msg}")
-                self.show_result(error_msg, True)
-                QMessageBox.warning(self, '配置错误', error_msg)
-                return False
-                
-            if not self.buckets:
-                error_msg = "存储桶配置为空，请至少配置一个存储桶。"
-                print(f"\n错误: {error_msg}")
-                self.show_result(error_msg, True)
-                QMessageBox.warning(self, '配置错误', error_msg)
-                return False
-                
-            # 检查每个存储桶的配置
-            print("\n存储桶配置详情:")
-            for bucket_name, config in self.buckets.items():
-                print(f"\n存储桶 {bucket_name}:")
-                print(f"  bucket_name: {'已设置' if config.get('bucket_name') else '未设置'}")
-                print(f"  custom_domain: {'已设置' if config.get('custom_domain') else '未设置（可选）'}")
-                print(f"  public_domain: {'已设置' if config.get('public_domain') else '未设置（可选）'}")
-                
-                if not config.get('bucket_name'):
-                    error_msg = f"存储桶 {bucket_name} 缺少必需的配置项：bucket_name"
-                    print(f"\n错误: {error_msg}")
-                    self.show_result(error_msg, True)
-                    QMessageBox.warning(self, '配置错误', error_msg)
+            # 检查配置是否存在
+            if not self.config or not self.has_valid_credentials():
+                # 如果没有有效配置，显示配置对话框
+                if not self.show_config_dialog():
                     return False
             
+            # 从配置中获取凭证
+            account_id = self.config.get('account_id')
+            access_key_id = self.config.get('access_key_id')
+            access_key_secret = self.config.get('access_key_secret')
+            endpoint_url = self.config.get('endpoint_url')
+            self.buckets = self.config.get('buckets', {})
+            
             # 初始化 S3 客户端
-            print("\n正在初始化 S3 客户端...")
             try:
                 self.s3_client = boto3.client(
                     service_name='s3',
@@ -540,38 +444,251 @@ R2_BUCKETS={
                     region_name='auto',
                     verify=False
                 )
-                print("S3 客户端初始化成功")
+                
+                # 清空并填充存储桶下拉框
+                self.bucket_combo.clear()
+                for bucket_name in self.buckets.keys():
+                    self.bucket_combo.addItem(bucket_name)
+                    
+                # 默认选择第一个存储桶
+                if self.bucket_combo.count() > 0:
+                    self.bucket_combo.setCurrentIndex(0)
+                    self.switch_bucket(0)
+                
+                self.show_result("R2客户端初始化成功", False)
+                return True
+                
             except Exception as e:
                 error_msg = f"S3 客户端初始化失败：{str(e)}"
-                print(f"\n错误: {error_msg}")
                 self.show_result(error_msg, True)
                 QMessageBox.warning(self, '初始化错误', error_msg)
                 return False
                 
-            # 清空并填充存储桶下拉框
-            print("\n正在填充存储桶下拉框...")
-            self.bucket_combo.clear()
-            for bucket_name in self.buckets.keys():
-                self.bucket_combo.addItem(bucket_name)
-            print(f"已添加 {self.bucket_combo.count()} 个存储桶到下拉框")
-                
-            # 默认选择第一个存储桶
-            if self.bucket_combo.count() > 0:
-                print("\n正在选择默认存储桶...")
-                self.bucket_combo.setCurrentIndex(0)
-                self.switch_bucket(0)
-                print("已选择默认存储桶")
-                
-            print("\n=== 诊断信息结束 ===")
-            self.show_result("R2客户端初始化成功", False)
-            return True
-            
         except Exception as e:
             error_msg = f"初始化R2客户端失败: {str(e)}"
-            print(f"\n错误: {error_msg}")
             self.show_result(error_msg, True)
             QMessageBox.warning(self, '初始化错误', error_msg)
             return False
+
+    def has_valid_credentials(self):
+        """检查是否有有效的凭证"""
+        required_fields = ['account_id', 'access_key_id', 'access_key_secret', 'endpoint_url']
+        has_creds = all(field in self.config and self.config[field] for field in required_fields)
+        has_buckets = 'buckets' in self.config and len(self.config['buckets']) > 0
+        return has_creds and has_buckets
+
+    def show_config_dialog(self):
+        """显示配置对话框"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Cloudflare R2 配置")
+        dialog.setMinimumWidth(500)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # 创建表单布局
+        form_layout = QVBoxLayout()
+        
+        # 账户ID
+        account_id_layout = QHBoxLayout()
+        account_id_label = QLabel("账户ID:")
+        account_id_input = QLineEdit()
+        account_id_input.setText(self.config.get('account_id', ''))
+        account_id_layout.addWidget(account_id_label)
+        account_id_layout.addWidget(account_id_input)
+        form_layout.addLayout(account_id_layout)
+        
+        # 访问密钥ID
+        key_id_layout = QHBoxLayout()
+        key_id_label = QLabel("访问密钥ID:")
+        key_id_input = QLineEdit()
+        key_id_input.setText(self.config.get('access_key_id', ''))
+        key_id_layout.addWidget(key_id_label)
+        key_id_layout.addWidget(key_id_input)
+        form_layout.addLayout(key_id_layout)
+        
+        # 访问密钥密文
+        key_secret_layout = QHBoxLayout()
+        key_secret_label = QLabel("访问密钥密文:")
+        key_secret_input = QLineEdit()
+        key_secret_input.setText(self.config.get('access_key_secret', ''))
+        key_secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+        key_secret_layout.addWidget(key_secret_label)
+        key_secret_layout.addWidget(key_secret_input)
+        form_layout.addLayout(key_secret_layout)
+        
+        # 端点URL
+        endpoint_layout = QHBoxLayout()
+        endpoint_label = QLabel("端点URL:")
+        endpoint_input = QLineEdit()
+        endpoint_url = self.config.get('endpoint_url', '')
+        if not endpoint_url and self.config.get('account_id'):
+            endpoint_url = f"https://{self.config['account_id']}.r2.cloudflarestorage.com"
+        endpoint_input.setText(endpoint_url)
+        endpoint_layout.addWidget(endpoint_label)
+        endpoint_layout.addWidget(endpoint_input)
+        form_layout.addLayout(endpoint_layout)
+        
+        # 添加表单到主布局
+        layout.addLayout(form_layout)
+        
+        # 存储桶配置标签
+        buckets_label = QLabel("存储桶配置:")
+        layout.addWidget(buckets_label)
+        
+        # 存储桶表格
+        buckets_table = QTableWidget(0, 4)
+        buckets_table.setHorizontalHeaderLabels(["存储桶标识", "存储桶名称", "自定义域名", "R2.dev公共域名"])
+        buckets_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        
+        # 添加现有存储桶
+        row = 0
+        for bucket_id, bucket_config in self.config.get('buckets', {}).items():
+            buckets_table.insertRow(row)
+            buckets_table.setItem(row, 0, QTableWidgetItem(bucket_id))
+            buckets_table.setItem(row, 1, QTableWidgetItem(bucket_config.get('bucket_name', '')))
+            buckets_table.setItem(row, 2, QTableWidgetItem(bucket_config.get('custom_domain', '')))
+            buckets_table.setItem(row, 3, QTableWidgetItem(bucket_config.get('public_domain', '')))
+            row += 1
+        
+        layout.addWidget(buckets_table)
+        
+        # 添加桶按钮
+        add_bucket_btn = QPushButton("添加存储桶")
+        layout.addWidget(add_bucket_btn)
+        
+        def add_bucket():
+            row = buckets_table.rowCount()
+            buckets_table.insertRow(row)
+            buckets_table.setItem(row, 0, QTableWidgetItem(f"bucket{row+1}"))
+            buckets_table.setItem(row, 1, QTableWidgetItem(""))
+            buckets_table.setItem(row, 2, QTableWidgetItem(""))
+            buckets_table.setItem(row, 3, QTableWidgetItem(""))
+        
+        add_bucket_btn.clicked.connect(add_bucket)
+        
+        # 如果没有存储桶，默认添加一个
+        if buckets_table.rowCount() == 0:
+            add_bucket()
+        
+        # 按钮布局
+        button_layout = QHBoxLayout()
+        cancel_btn = QPushButton("取消")
+        save_btn = QPushButton("保存")
+        button_layout.addWidget(cancel_btn)
+        button_layout.addWidget(save_btn)
+        layout.addLayout(button_layout)
+        
+        # 连接按钮信号
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        def save_config():
+            # 验证必填字段
+            if not account_id_input.text() or not key_id_input.text() or not key_secret_input.text() or not endpoint_input.text():
+                QMessageBox.warning(dialog, "错误", "所有凭证字段都是必填的")
+                return
+            
+            # 保存凭证
+            self.config['account_id'] = account_id_input.text().strip()
+            self.config['access_key_id'] = key_id_input.text().strip()
+            self.config['access_key_secret'] = key_secret_input.text().strip()
+            self.config['endpoint_url'] = endpoint_input.text().strip()
+            
+            # 保存存储桶配置
+            buckets = {}
+            for row in range(buckets_table.rowCount()):
+                bucket_id = buckets_table.item(row, 0).text().strip()
+                bucket_name = buckets_table.item(row, 1).text().strip()
+                custom_domain = buckets_table.item(row, 2).text().strip()
+                public_domain = buckets_table.item(row, 3).text().strip()
+                
+                if not bucket_id or not bucket_name:
+                    QMessageBox.warning(dialog, "错误", f"行 {row+1}: 存储桶标识和名称是必填的")
+                    return
+                
+                buckets[bucket_id] = {
+                    "bucket_name": bucket_name,
+                    "custom_domain": custom_domain,
+                    "public_domain": public_domain
+                }
+            
+            if not buckets:
+                QMessageBox.warning(dialog, "错误", "请至少配置一个存储桶")
+                return
+            
+            # 保存之前的当前存储桶
+            current_bucket = self.bucket_combo.currentText() if self.bucket_combo.count() > 0 else None
+            
+            # 保存新配置
+            self.config['buckets'] = buckets
+            self.save_config()
+            
+            # 重新初始化R2客户端并更新UI
+            try:
+                # 更新存储桶列表
+                self.buckets = buckets
+                self.bucket_combo.clear()
+                for bucket_name in self.buckets.keys():
+                    self.bucket_combo.addItem(bucket_name)
+                
+                # 如果之前有选择的存储桶，尝试重新选择它
+                if current_bucket and current_bucket in self.buckets:
+                    index = self.bucket_combo.findText(current_bucket)
+                    if index >= 0:
+                        self.bucket_combo.setCurrentIndex(index)
+                    else:
+                        self.bucket_combo.setCurrentIndex(0)
+                elif self.bucket_combo.count() > 0:
+                    self.bucket_combo.setCurrentIndex(0)
+                
+                # 刷新当前视图
+                if self.bucket_combo.count() > 0:
+                    self.refresh_file_list(self.current_path, calculate_bucket_size=True)
+                
+                dialog.accept()
+                self.show_result("配置已保存并应用", False)
+                
+            except Exception as e:
+                error_msg = f"应用配置失败: {str(e)}"
+                self.show_result(error_msg, True)
+                QMessageBox.warning(dialog, "错误", error_msg)
+        
+        save_btn.clicked.connect(save_config)
+        
+        # 显示对话框
+        result = dialog.exec()
+        
+        # 返回是否有效配置
+        return result == QDialog.DialogCode.Accepted and self.has_valid_credentials()
+
+    def load_config(self):
+        """加载配置"""
+        # 获取脚本所在目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_file = os.path.join(script_dir, "cloudflare_r2_manager.json")
+        
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    self.config = json.load(f)
+            except Exception as e:
+                self.show_result(f"加载配置文件失败: {str(e)}", True)
+                self.config = {}
+
+    def save_config(self):
+        """保存配置"""
+        # 获取脚本所在目录
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_file = os.path.join(script_dir, "cloudflare_r2_manager.json")
+        
+        try:
+            with open(config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, ensure_ascii=False, indent=2)
+            
+            self.show_result("配置已保存", False)
+        except Exception as e:
+            error_msg = f"保存配置失败: {str(e)}"
+            self.show_result(error_msg, True)
+            QMessageBox.warning(self, '保存错误', error_msg)
 
     def _create_s3_client(self, bucket_config):
         """创建 S3 客户端"""
@@ -588,160 +705,6 @@ R2_BUCKETS={
             verify=False
         )
 
-    def init_file_upload_ui(self, layout):
-        """初始化文件上传界面"""
-        # 左侧面板
-        left_panel = QWidget()
-        left_layout = QVBoxLayout()
-        left_panel.setLayout(left_layout)
-        
-        # 添加拖放提示标签
-        self.drop_label = QLabel('拖拽文件或文件夹到这里上传')
-        self.drop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.drop_label.setStyleSheet("""
-            QLabel {
-                background-color: #f0f0f0;
-                border: 2px dashed #999;
-                border-radius: 5px;
-                padding: 20px;
-                color: #666;
-            }
-            QLabel:hover {
-                background-color: #e0e0e0;
-                border-color: #666;
-            }
-        """)
-        left_layout.addWidget(self.drop_label)
-
-        # 添加文件选择相关控件到左侧面板
-        self.file_path_input = QLineEdit()
-        self.file_path_input.setPlaceholderText('选择文件或文件夹路径')
-        self.file_path_input.setMinimumHeight(40)  # 增加输入框高度
-        left_layout.addWidget(self.file_path_input)
-
-        button_layout = QHBoxLayout()
-        browse_file_btn = QPushButton('选择文件')
-        browse_folder_btn = QPushButton('选择文件夹')
-        browse_file_btn.setMinimumHeight(40)  # 增加按钮高度
-        browse_folder_btn.setMinimumHeight(40)  # 增加按钮高度
-        browse_file_btn.clicked.connect(self.browse_file)
-        browse_folder_btn.clicked.connect(self.browse_folder)
-        button_layout.addWidget(browse_file_btn)
-        button_layout.addWidget(browse_folder_btn)
-        left_layout.addLayout(button_layout)
-
-        self.custom_name_input = QLineEdit()
-        self.custom_name_input.setPlaceholderText('自定义文件名（可选）')
-        self.custom_name_input.setMinimumHeight(40)  # 增加输入框高度
-        left_layout.addWidget(self.custom_name_input)
-
-        upload_btn = QPushButton('上传')
-        upload_btn.setMinimumHeight(40)  # 增加按钮高度
-        upload_btn.clicked.connect(self.upload_file)
-        left_layout.addWidget(upload_btn)
-
-        # 增加各控件之间的间距
-        left_layout.setSpacing(10)  # 设置布局中控件之间的垂直间距
-
-        self.progress_bar = QProgressBar()
-        left_layout.addWidget(self.progress_bar)
-
-        # 添加文件信息显示
-        self.current_file_info = QTextEdit()
-        self.current_file_info.setReadOnly(True)
-        self.current_file_info.setPlaceholderText('当前文件信息')
-        left_layout.addWidget(self.current_file_info)
-
-        # 添加上传结果显示
-        self.result_info = QTextEdit()
-        self.result_info.setReadOnly(True)
-        self.result_info.setPlaceholderText('上传结果')
-        left_layout.addWidget(self.result_info)
-
-        # 右侧面板
-        right_panel = QWidget()
-        right_layout = QVBoxLayout()
-        right_panel.setLayout(right_layout)
-
-        # 添加存储桶选择下拉框
-        bucket_layout = QHBoxLayout()
-        bucket_label = QLabel('当前存储桶:')
-        self.bucket_combo = QComboBox()
-        self.bucket_combo.currentIndexChanged.connect(self.switch_bucket)
-        bucket_layout.addWidget(bucket_label)
-        bucket_layout.addWidget(self.bucket_combo)
-        bucket_layout.addStretch()
-        right_layout.addLayout(bucket_layout)
-
-        # 添加当前路径显示
-        path_layout = QHBoxLayout()
-        self.back_button = QPushButton('返回上级')
-        self.back_button.clicked.connect(self.go_back)
-        self.back_button.setEnabled(False)  # 初始禁用
-        
-        # 设置返回按钮的固定宽度
-        self.back_button.setFixedWidth(80)  # 设置固定宽度为80像素
-        
-        self.current_path_label = QLabel('当前路径: /')
-        path_layout.addWidget(self.back_button)
-        path_layout.addWidget(self.current_path_label)
-        
-        # 修改视图布局，添加刷新按钮
-        view_layout = QHBoxLayout()
-        self.bucket_size_label = QLabel('桶大小: 统计中...')
-        
-        view_layout.addWidget(self.bucket_size_label)
-        view_layout.addStretch()
-        
-        # 将视图布局添加到右侧布局中
-        right_layout.addLayout(view_layout)
-        right_layout.addLayout(path_layout)
-
-        # 表视图
-        self.file_list = QTreeWidget()
-        self.file_list.setHeaderLabels(['名称', '类型', '大小', '修改时间'])
-        self.file_list.setColumnWidth(0, 300)
-        self.file_list.itemDoubleClicked.connect(self.on_item_double_clicked)
-        self.file_list.setAcceptDrops(True)  # 启用拖放
-        self.file_list.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)  # 允许多选
-        
-        right_layout.addWidget(self.file_list)
-
-        # 添加左右面板到主布局
-        main_layout.addWidget(left_panel, 1)
-        main_layout.addWidget(right_panel, 1)
-
-        # 初始化当前路径
-        self.current_path = ''
-
-        # 为文件列表右键菜单
-        self.file_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.file_list.customContextMenuRequested.connect(self.show_context_menu)
-
-        # 添加快捷键支持
-        self.file_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-
-        # 在 init_ui 方法末尾添加快捷键设置
-        # 删除文件快捷键 (Ctrl+D)
-        delete_shortcut = QShortcut(QKeySequence("Ctrl+D"), self)
-        delete_shortcut.activated.connect(self.delete_selected_item)
-
-        # 删除目录快捷键 (Ctrl+L)
-        delete_dir_shortcut = QShortcut(QKeySequence("Ctrl+L"), self)
-        delete_dir_shortcut.activated.connect(self.delete_selected_directory)
-
-        # 进入目录快捷键 (Enter)
-        enter_dir_shortcut = QShortcut(QKeySequence("Return"), self)
-        enter_dir_shortcut.activated.connect(self.enter_selected_directory)
-
-        # 自定义域名分享快捷键 (Ctrl+Z)
-        custom_share_shortcut = QShortcut(QKeySequence("Ctrl+Z"), self)
-        custom_share_shortcut.activated.connect(lambda: self.share_selected_item(True))
-
-        # R2.dev分享快捷键 (Ctrl+E)
-        r2_share_shortcut = QShortcut(QKeySequence("Ctrl+E"), self)
-        r2_share_shortcut.activated.connect(lambda: self.share_selected_item(False))
-
     def switch_bucket(self, index):
         """切换存储桶"""
         if not hasattr(self, 'buckets') or index < 0:
@@ -754,11 +717,11 @@ R2_BUCKETS={
         try:
             # 确保 s3_client 已初始化
             if not hasattr(self, 's3_client'):
-                # 获取通用凭证
-                account_id = os.getenv('R2_ACCOUNT_ID')
-                access_key_id = os.getenv('R2_ACCESS_KEY_ID')
-                access_key_secret = os.getenv('R2_ACCESS_KEY_SECRET')
-                endpoint_url = os.getenv('R2_ENDPOINT_URL')
+                # 从配置中获取凭证
+                account_id = self.config.get('account_id')
+                access_key_id = self.config.get('access_key_id')
+                access_key_secret = self.config.get('access_key_secret')
+                endpoint_url = self.config.get('endpoint_url')
 
                 if not all([account_id, access_key_id, access_key_secret, endpoint_url]):
                     raise Exception("缺少必需的R2凭证配置")
@@ -1202,7 +1165,7 @@ R2_BUCKETS={
     def get_public_url(self, object_key):
         """生成永久公开访问链接"""
         # 使用自定义域名
-        custom_domain = "r2.lss.lol"
+        custom_domain = self.current_bucket_config.get('custom_domain', "r2.lss.lol")
         
         # 确保 object_key 开头没有斜杠
         object_key = object_key.lstrip('/')
@@ -1452,19 +1415,21 @@ R2_BUCKETS={
         object_key = item.data(0, Qt.ItemDataRole.UserRole)
         
         if use_custom_domain:
-            domain = os.getenv('R2_CUSTOM_DOMAIN')
+            domain = self.current_bucket_config.get('custom_domain')
             domain_type = "自定义域名"
-            url = f"https://{domain}/{object_key}"
-            # 检查domain格式，如果包含完整URL格式则直接使用
-            if domain and (domain.startswith('http://') or domain.startswith('https://')):
-                url = f"{domain}/{object_key}"
+            if domain:
+                url = f"https://{domain}/{object_key}"
+            else:
+                # 如果没有设置自定义域名，使用默认域名
+                url = f"https://r2.lss.lol/{object_key}"
         else:
-            domain = os.getenv('R2_PUBLIC_DOMAIN')
+            domain = self.current_bucket_config.get('public_domain')
             domain_type = "R2.dev"
-            url = f"https://{domain}/{object_key}"
-            # 检查domain格式，如果包含完整URL格式则直接使用
-            if domain and (domain.startswith('http://') or domain.startswith('https://')):
-                url = f"{domain}/{object_key}"
+            if domain:
+                url = f"https://{domain}/{object_key}"
+            else:
+                # 如果没有设置公共域名，使用默认域名
+                url = f"https://r2.lss.lol/{object_key}"
         
         # 复制到剪贴板
         clipboard = QApplication.clipboard()
@@ -1568,10 +1533,7 @@ R2_BUCKETS={
                 for i, file_info in enumerate(all_files, 1):
                     # 生成自定义域名URL
                     if domain:
-                        if domain.startswith('http://') or domain.startswith('https://'):
-                            custom_url = f"{domain}/{file_info['key']}"
-                        else:
-                            custom_url = f"https://{domain}/{file_info['key']}"
+                        custom_url = f"https://{domain}/{file_info['key']}"
                     else:
                         custom_url = f"https://r2.lss.lol/{file_info['key']}"  # 默认URL
                     
@@ -2208,19 +2170,13 @@ R2_BUCKETS={
             if use_custom_domain:
                 domain = self.current_bucket_config.get('custom_domain')
                 if domain:
-                    if domain.startswith('http://') or domain.startswith('https://'):
-                        url = f"{domain}/{object_key}"
-                    else:
-                        url = f"https://{domain}/{object_key}"
+                    url = f"https://{domain}/{object_key}"
                 else:
                     url = f"https://r2.lss.lol/{object_key}"  # 默认URL
             else:
                 domain = self.current_bucket_config.get('public_domain')
                 if domain:
-                    if domain.startswith('http://') or domain.startswith('https://'):
-                        url = f"{domain}/{object_key}"
-                    else:
-                        url = f"https://{domain}/{object_key}"
+                    url = f"https://{domain}/{object_key}"
                 else:
                     url = f"https://r2.lss.lol/{object_key}"  # 默认URL
                     
